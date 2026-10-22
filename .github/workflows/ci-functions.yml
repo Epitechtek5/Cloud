@@ -1,0 +1,65 @@
+name: ci-functions
+
+on:
+  pull_request:
+    paths:
+      - "app/functions/**"
+      - ".github/workflows/ci-functions.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-functions-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: app/functions
+
+jobs:
+  test:
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/functions/package-lock.json
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Package
+        run: |
+          mkdir -p "$RUNNER_TEMP/package"
+          (cd dist && zip -qr "$RUNNER_TEMP/package/functions.zip" .)
+
+      # Kept for inspection only: PRs never deploy.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: functions-package
+          path: ${{ runner.temp }}/package/functions.zip
+          retention-days: 7
+
+  audit:
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: npm audit (production dependencies, high and above)
+        run: npm audit --omit=dev --audit-level=high
