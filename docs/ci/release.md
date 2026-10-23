@@ -33,10 +33,20 @@ Run the `release` workflow manually (Actions, `release`, Run workflow) on a test
 It prints the next version and the release notes without creating anything. Locally:
 `npx semantic-release --dry-run --no-ci --branches <branch>`.
 
-## Tag signing (decision to confirm with the team)
+## Tag signing (decision: tags are not signed)
 
-Proposal: **do not sign tags with a GPG key in CI.** Storing a signing key in GitHub is a second long-lived
-secret, which goes against the keyless goal. The integrity guarantees come instead from the tag ruleset (only the
-release app can create tags, nobody can move or delete them) and from the GitHub Release being produced by a
-workflow run that can be audited. If the subject requires "Verified" tags, the alternative is a dedicated GPG key
-stored as a secret, configured with `tag.gpgSign`; this issue should then be revisited.
+Decision: **tags are not signed with a GPG key in CI.** The parent issue accepts either a GPG key or a written
+justification, and this is the justification.
+
+- A signing key stored in GitHub is a second long-lived secret, which goes against the keyless goal.
+- `semantic-release` creates lightweight tags, which cannot be "Verified". Signing would require annotated tags
+  (`tag.gpgSign`), a key imported at every run, and rotation.
+- A GitHub App has no GPG key setting, and the "Verified" badge needs a key attached to a user account. It would
+  need a dedicated machine user that becomes the author of the tags instead of the app.
+- Keyless signing (Sigstore `gitsign`) fits the goal, but GitHub does not show "Verified" for it.
+
+Integrity comes from the tag ruleset (only the release app can create `v*` tags, nobody can move or delete them)
+and from every release being produced by a workflow run that can be audited.
+
+Revisit this if the subject or a reviewer explicitly requires "Verified" tags: use a dedicated machine user, a
+GPG key stored as a secret, and `tag.gpgSign`, and update the ruleset bypass actor accordingly.
