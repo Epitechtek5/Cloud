@@ -1,0 +1,17 @@
+# Node / frontend
+node_modules/
+dist/
+coverage/
+.vite/
+*.local
+.env.local
+.env.*.local
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# Secrets / local
+.env
+*.pem

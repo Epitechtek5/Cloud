@@ -1,0 +1,18 @@
+:root { color-scheme: dark; font-family: system-ui, sans-serif; --bg: #1e1f22; --panel: #2b2d31; --fg: #f2f3f5; --muted: #949ba4; --accent: #5865f2; }
+* { box-sizing: border-box; }
+html, body, #app { margin: 0; height: 100%; background: var(--bg); color: var(--fg); overflow: hidden; }
+#app { position: relative; }
+#canvas { display: block; touch-action: none; cursor: crosshair; }
+.bar { position: absolute; top: 12px; left: 12px; right: 12px; display: flex; gap: 16px; align-items: center; padding: 8px 12px; background: var(--panel); border-radius: 8px; pointer-events: none; flex-wrap: wrap; }
+.bar > * { pointer-events: auto; }
+.coords { font-variant-numeric: tabular-nums; min-width: 9ch; color: var(--muted); }
+.goto { display: flex; gap: 6px; margin-left: auto; }
+.goto input { width: 7ch; padding: 4px 6px; background: var(--bg); color: var(--fg); border: 1px solid #3f4147; border-radius: 4px; }
+.goto button { background: var(--accent); color: #fff; border: 0; border-radius: 4px; padding: 4px 12px; cursor: pointer; }
+.inspector { position: absolute; right: 12px; bottom: 12px; width: 240px; padding: 12px 14px; background: var(--panel); border-radius: 8px; }
+.inspector h3 { margin: 0 0 8px; font-size: 14px; }
+.inspector .row { display: flex; gap: 8px; align-items: center; margin: 4px 0; font-size: 13px; }
+.swatch { width: 18px; height: 18px; border-radius: 3px; border: 1px solid #0006; }
+.muted { color: var(--muted); }
+.hidden, [hidden] { display: none !important; }
+.debug { position: absolute; left: 12px; bottom: 12px; margin: 0; padding: 8px 10px; background: #000a; border-radius: 6px; font-size: 12px; }
