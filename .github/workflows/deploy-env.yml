@@ -68,9 +68,14 @@ jobs:
             echo "::endgroup::"
           done
 
-      # Contract: the serverless stack exposes an `app_url` output.
+      # Contract: the serverless stack exposes an `app_url` output. Skipped
+      # while infra/serverless has no .tf files (same rule as the apply loop).
       - name: Smoke tests
         run: |
+          if ! ls infra/serverless/*.tf >/dev/null 2>&1; then
+            echo "::notice::infra/serverless has no .tf files, no smoke test"
+            exit 0
+          fi
           url=$(terraform -chdir=infra/serverless output -raw app_url)
           echo "Checking $url"
           curl --fail --silent --show-error --location \
