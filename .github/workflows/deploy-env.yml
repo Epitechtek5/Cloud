@@ -62,7 +62,7 @@ jobs:
             echo "::group::apply $stack ($ENV)"
             terraform -chdir=infra/$stack init -input=false \
               -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
-              -backend-config="prefix=$stack/$ENV"
+              -backend-config="prefix=$stack"
             terraform -chdir=infra/$stack apply -input=false -auto-approve \
               -var-file="$ENV.tfvars"
             echo "::endgroup::"

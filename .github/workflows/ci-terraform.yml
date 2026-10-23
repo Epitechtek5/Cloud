@@ -103,7 +103,7 @@ jobs:
         run: |
           terraform -chdir="infra/$STACK" init -input=false \
             -backend-config="bucket=${{ vars[format('TF_STATE_BUCKET_{0}', matrix.env)] }}" \
-            -backend-config="prefix=$STACK/$ENV"
+            -backend-config="prefix=$STACK"
 
       - name: terraform plan
         if: steps.stack.outputs.found == 'true'

@@ -40,7 +40,7 @@ jobs:
             ls infra/$stack/*.tf >/dev/null 2>&1 || continue
             terraform -chdir=infra/$stack init -input=false \
               -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
-              -backend-config="prefix=$stack/prd"
+              -backend-config="prefix=$stack"
             terraform -chdir=infra/$stack show -json > "$RUNNER_TEMP/state/$stack.json"
           done
           jq -s -f .github/scripts/architecture/extract.jq "$RUNNER_TEMP"/state/*.json > architecture-input.json
