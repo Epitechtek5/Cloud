@@ -20,6 +20,7 @@ concurrency:
 jobs:
   release:
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 15
     steps:
       # A tag pushed with the default GITHUB_TOKEN does not trigger deploy.yml,
       # so the release runs as a dedicated GitHub App.
