@@ -19,6 +19,7 @@ permissions:
 jobs:
   guard:
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 5
     steps:
       - name: Check the confirmation
         env:
@@ -33,6 +34,7 @@ jobs:
   destroy:
     needs: guard
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 30
     # Required reviewers for prd are configured on the GitHub Environment.
     environment: ${{ inputs.env }}
     # Shares the group with deploy-env so a destroy never overlaps a deploy.
