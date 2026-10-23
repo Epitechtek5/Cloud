@@ -9,6 +9,7 @@ export default tseslint.config(
   {
     languageOptions: { globals: globals.browser },
     rules: {
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
       // Hard requirement: the canvas must update through events, never by polling.
       'no-restricted-globals': [
         'error',
