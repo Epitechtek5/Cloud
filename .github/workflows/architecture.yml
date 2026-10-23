@@ -43,6 +43,10 @@ jobs:
               -backend-config="prefix=$stack"
             terraform -chdir=infra/$stack show -json > "$RUNNER_TEMP/state/$stack.json"
           done
+          if ! ls "$RUNNER_TEMP"/state/*.json >/dev/null 2>&1; then
+            echo "::error::No Terraform stack found under infra/, nothing to draw"
+            exit 1
+          fi
           jq -s -f .github/scripts/architecture/extract.jq "$RUNNER_TEMP"/state/*.json > architecture-input.json
 
       - uses: actions/upload-artifact@v4
@@ -131,7 +135,13 @@ jobs:
           git switch -c "$branch"
           git -c user.name="release-bot" -c user.email="release-bot@users.noreply.github.com" \
             commit -m "docs: update architecture diagram ($TAG)"
-          git push origin "$branch"
+          # A re-run regenerates the same bot branch: overwrite it and reuse the
+          # open PR instead of failing on the push or on a duplicate PR.
+          git push --force origin "$branch"
+          if [ "$(gh pr view "$branch" --json state --jq .state 2>/dev/null)" = "OPEN" ]; then
+            echo "A PR is already open for $branch, branch updated."
+            exit 0
+          fi
           gh pr create --base dev --head "$branch" \
             --title "docs: update architecture diagram ($TAG)" \
             --body "Generated after the production deployment of $TAG from the deployed Terraform state. The grouping and labels come from a model: please review the diagram against the real infrastructure before merging."
