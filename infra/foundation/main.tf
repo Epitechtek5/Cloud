@@ -22,6 +22,23 @@ resource "google_compute_subnetwork" "main" {
   }
 }
 
+# Reserved for the future self-hosted CI runners, kept apart from the
+# workload subnet so their firewall rules and routes stay independent.
+resource "google_compute_subnetwork" "runners" {
+  name          = "${var.vpc_name}-runners"
+  network       = google_compute_network.main.id
+  region        = var.region
+  ip_cidr_range = cidrsubnet(var.cidr_block, 8, 2) # 10.0.0.0/16 -> 10.0.2.0/24
+
+  private_ip_google_access = true
+
+  log_config {
+    aggregation_interval = "INTERVAL_10_MIN"
+    flow_sampling        = 0.5
+    metadata             = "INCLUDE_ALL_METADATA"
+  }
+}
+
 # Explicit deny-all ingress at the lowest priority: nothing reaches the VPC
 # until a more specific allow rule (lower priority number) is added.
 resource "google_compute_firewall" "deny_all_ingress" {
