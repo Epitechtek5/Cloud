@@ -1,0 +1,82 @@
+name: ci-frontend
+
+on:
+  pull_request:
+    paths:
+      - "app/frontend/**"
+      - ".github/workflows/ci-frontend.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-frontend-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: app/frontend
+
+jobs:
+  test:
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/frontend/package-lock.json
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Production build
+        run: npm run build
+
+  audit:
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # The plain report goes to the logs. If it fails, the high and critical
+      # advisories are compared with the justified, non-expired exceptions in
+      # app/frontend/audit-exceptions.json (see docs/ci/dependency-audit.md).
+      - name: npm audit (production dependencies, high and above)
+        run: |
+          code=0
+          npm audit --omit=dev --audit-level=high || code=$?
+          [ "$code" -eq 0 ] && exit 0
+
+          if [ ! -f audit-exceptions.json ]; then
+            echo "::error::npm audit found high or critical advisories and there is no audit-exceptions.json"
+            exit 1
+          fi
+
+          npm audit --omit=dev --json > "$RUNNER_TEMP/audit.json" || true
+          remaining=$(jq -r --slurpfile ex audit-exceptions.json --arg today "$(date +%F)" '
+            ([$ex[0][] | select(.expires >= $today) | .id]) as $ok
+            | [.vulnerabilities[] | .via[] | objects
+                | select(.severity == "high" or .severity == "critical")
+                | .url | split("/") | last]
+            | unique | map(select(. as $id | $ok | index($id) | not)) | .[]' "$RUNNER_TEMP/audit.json")
+
+          if [ -n "$remaining" ]; then
+            echo "::error::Advisories without a valid exception:"
+            echo "$remaining"
+            exit 1
+          fi
+          echo "::warning::All remaining advisories are covered by a non-expired exception"

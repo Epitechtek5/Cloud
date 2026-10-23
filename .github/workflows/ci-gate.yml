@@ -1,0 +1,82 @@
+name: ci-gate
+
+# Always runs on PRs to main, so the required check exists even when the
+# path-filtered CI workflows are skipped.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+concurrency:
+  group: ci-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci-gate:
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 45
+    steps:
+      # Keep these filters in sync with the `paths` of each CI workflow.
+      - id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            terraform:
+              - 'infra/**'
+              - '.github/workflows/ci-terraform.yml'
+            functions:
+              - 'app/functions/**'
+              - '.github/workflows/ci-functions.yml'
+            frontend:
+              - 'app/frontend/**'
+              - '.github/workflows/ci-frontend.yml'
+
+      - name: Wait for the expected CI workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          TERRAFORM: ${{ steps.changes.outputs.terraform }}
+          FUNCTIONS: ${{ steps.changes.outputs.functions }}
+          FRONTEND: ${{ steps.changes.outputs.frontend }}
+        run: |
+          # ci-security has no path filter, so it is always expected.
+          pending="ci-security.yml"
+          [ "$TERRAFORM" = "true" ] && pending="$pending ci-terraform.yml"
+          [ "$FUNCTIONS" = "true" ] && pending="$pending ci-functions.yml"
+          [ "$FRONTEND" = "true" ] && pending="$pending ci-frontend.yml"
+          echo "Expected workflows: $pending"
+
+          deadline=$((SECONDS + 2400))
+          failed=0
+          while [ -n "$pending" ]; do
+            still=""
+            for wf in $pending; do
+              line=$(gh run list -R "$GITHUB_REPOSITORY" --workflow "$wf" --commit "$SHA" \
+                --event pull_request -L 1 --json status,conclusion \
+                --jq '.[0] | select(. != null) | "\(.status) \(.conclusion)"')
+              status=${line%% *}
+              conclusion=${line#* }
+              if [ "$status" = "completed" ]; then
+                if [ "$conclusion" = "success" ]; then
+                  echo "OK    $wf"
+                else
+                  echo "::error::$wf finished with '$conclusion'"
+                  failed=1
+                fi
+              else
+                still="$still $wf"
+              fi
+            done
+            pending=${still# }
+            [ -z "$pending" ] && break
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::Timed out waiting for: $pending"
+              exit 1
+            fi
+            sleep 20
+          done
+          exit $failed

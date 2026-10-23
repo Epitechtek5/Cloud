@@ -1,3 +1,6 @@
+__pycache__/
+*.pyc
+
 # Terraform
 .terraform/
 *.tfstate
@@ -29,3 +32,7 @@ terraform.rc
 Thumbs.db
 
 subject-cloud-native.txt
+
+# Build output
+dist/
+node_modules/
