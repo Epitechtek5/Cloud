@@ -1,0 +1,137 @@
+name: architecture
+
+# Reusable workflow called by deploy.yml after deploy-prd. It can also be run
+# by hand to test the generation.
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  D2_VERSION: 0.6.9
+
+jobs:
+  # Cloud access, but no secret and no model call: only addresses, types and
+  # names leave this job (attribute values may be sensitive and are dropped).
+  extract:
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    environment: prd
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Read the deployed state
+        run: |
+          mkdir -p "$RUNNER_TEMP/state"
+          for stack in foundation serverless; do
+            ls infra/$stack/*.tf >/dev/null 2>&1 || continue
+            terraform -chdir=infra/$stack init -input=false \
+              -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+              -backend-config="prefix=$stack"
+            terraform -chdir=infra/$stack show -json > "$RUNNER_TEMP/state/$stack.json"
+          done
+          jq -s -f .github/scripts/architecture/extract.jq "$RUNNER_TEMP"/state/*.json > architecture-input.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: architecture-input
+          path: architecture-input.json
+
+  # The model call: has the API key, but no cloud credentials.
+  generate:
+    needs: extract
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    environment: prd
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: architecture-input
+
+      - name: Group and label the resources, then verify
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ARCH_MODEL: ${{ vars.ARCH_MODEL || 'claude-haiku-5-5' }}
+        run: python3 -I .github/scripts/architecture/generate.py architecture-input.json architecture.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: architecture-plan
+          path: architecture.json
+
+  # Rendering and PR: no cloud credentials, no model key. The model output is
+  # data (JSON) rendered by our own script, never executed.
+  publish:
+    needs: generate
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    steps:
+      - id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      # main is protected and only accepts PRs from dev, so the diagram goes
+      # to dev and reaches main with the next dev -> main PR.
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+          token: ${{ steps.app-token.outputs.token }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: architecture-input
+          path: ${{ runner.temp }}/in
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: architecture-plan
+          path: ${{ runner.temp }}/in
+
+      - name: Install d2
+        run: |
+          archive="d2-v${D2_VERSION}-linux-amd64.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/$archive" "https://github.com/terrastruct/d2/releases/download/v${D2_VERSION}/$archive"
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/d2-v${D2_VERSION}/bin" >> "$GITHUB_PATH"
+
+      - name: Render
+        run: |
+          mkdir -p docs/architecture
+          cp "$RUNNER_TEMP/in/architecture.json" docs/architecture/architecture.json
+          python3 -I .github/scripts/architecture/render.py \
+            "$RUNNER_TEMP/in/architecture-input.json" docs/architecture/architecture.json docs/architecture/architecture.d2
+          d2 docs/architecture/architecture.d2 docs/architecture/architecture.svg
+
+      - name: Open a pull request
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          git add docs/architecture
+          if git diff --cached --quiet; then
+            echo "The diagram is unchanged, no PR."
+            exit 0
+          fi
+          branch="docs/architecture-$TAG"
+          git switch -c "$branch"
+          git -c user.name="release-bot" -c user.email="release-bot@users.noreply.github.com" \
+            commit -m "docs: update architecture diagram ($TAG)"
+          git push origin "$branch"
+          gh pr create --base dev --head "$branch" \
+            --title "docs: update architecture diagram ($TAG)" \
+            --body "Generated after the production deployment of $TAG from the deployed Terraform state. The grouping and labels come from a model: please review the diagram against the real infrastructure before merging."

@@ -1,0 +1,13 @@
+{
+  "name": "functions",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Cloud Functions (placeholder base, no dependencies yet)",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "lint": "node --check src/index.js",
+    "test": "node --test",
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true});require('fs').cpSync('src','dist',{recursive:true});require('fs').copyFileSync('package.json','dist/package.json')\""
+  }
+}
