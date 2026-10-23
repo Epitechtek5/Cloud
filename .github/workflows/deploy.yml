@@ -1,0 +1,71 @@
+name: deploy
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build functions
+        working-directory: app/functions
+        run: |
+          npm ci
+          npm run build
+          mkdir -p "$RUNNER_TEMP/artifact"
+          (cd dist && zip -qr "$RUNNER_TEMP/artifact/functions.zip" .)
+
+      - name: Build frontend
+        working-directory: app/frontend
+        run: |
+          npm ci
+          npm run build
+          cp -r dist "$RUNNER_TEMP/artifact/frontend"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-${{ github.ref_name }}
+          path: ${{ runner.temp }}/artifact
+          if-no-files-found: error
+
+  deploy-dev:
+    needs: build
+    uses: ./.github/workflows/deploy-env.yml
+    with:
+      env: dev
+      artifact: app-${{ github.ref_name }}
+    permissions:
+      contents: read
+      id-token: write
+
+  deploy-prd:
+    needs: deploy-dev
+    uses: ./.github/workflows/deploy-env.yml
+    with:
+      env: prd
+      artifact: app-${{ github.ref_name }}
+    permissions:
+      contents: read
+      id-token: write
+
+  # Calls the reusable workflow added with the architecture diagram issue (#11).
+  # Nothing depends on this job, so a failure never affects the deployments.
+  architecture:
+    needs: deploy-prd
+    uses: ./.github/workflows/architecture.yml
+    # publish reads repository secrets (GitHub App); a reusable workflow only
+    # receives them when they are passed explicitly.
+    secrets: inherit
+    permissions:
+      contents: read
+      id-token: write
