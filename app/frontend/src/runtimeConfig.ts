@@ -29,5 +29,9 @@ export function parseRuntimeConfig(raw: unknown): RuntimeConfig {
 export async function loadRuntimeConfig(url = '/config.json'): Promise<RuntimeConfig> {
   const res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) throw new Error(`Cannot load ${url}: HTTP ${res.status}`);
-  return parseRuntimeConfig(await res.json());
+  // A missing file is often answered with the SPA fallback page (HTML), not a 404.
+  const body: unknown = await res.json().catch(() => {
+    throw new Error(`Invalid ${url}: not JSON (is it deployed next to the app?)`);
+  });
+  return parseRuntimeConfig(body);
 }

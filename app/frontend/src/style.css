@@ -16,3 +16,11 @@ html, body, #app { margin: 0; height: 100%; background: var(--bg); color: var(--
 .muted { color: var(--muted); }
 .hidden, [hidden] { display: none !important; }
 .debug { position: absolute; left: 12px; bottom: 12px; margin: 0; padding: 8px 10px; background: #000a; border-radius: 6px; font-size: 12px; }
+
+.screen { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 16px; align-items: center; justify-content: center; background: var(--bg); z-index: 10; }
+.screen h1 { margin: 0; font-size: 28px; }
+.login { background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 10px 22px; font-size: 15px; cursor: pointer; }
+.login:disabled { opacity: 0.6; cursor: default; }
+.error { color: #f23f43; max-width: 60ch; text-align: center; }
+.user { color: var(--muted); }
+.logout { background: transparent; color: var(--muted); border: 1px solid #3f4147; border-radius: 4px; padding: 2px 8px; cursor: pointer; }

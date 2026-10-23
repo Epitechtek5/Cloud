@@ -37,3 +37,9 @@ npm run build      # un seul artefact, promu dev → prd par la CI (services GCP
 Zoom arrière plafonné à 0,5× (≈ 100 tuiles) : à cette échelle on voit ~1 % de la largeur de la grille.
 Une couche d'aperçu sous-échantillonnée (mini-map) devient nécessaire pour s'y repérer ; en attendant,
 le formulaire « aller à (x, y) » permet de se téléporter.
+
+## Auth Discord (web + Activity)
+
+`src/auth/` : flux web (redirect code + PKCE, `state` anti-CSRF) et flux Activity (`@discord/embedded-app-sdk`),
+token en mémoire uniquement. Réglages du Developer Portal, mappings d'URL et contrat de `POST /auth/discord` :
+voir [docs/discord-activity.md](../../docs/discord-activity.md). En `npm run dev`, un utilisateur factice est utilisé.
