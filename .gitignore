@@ -21,6 +21,11 @@ terraform.rc
 !package.json
 !package-lock.json
 !tsconfig.json
+!tsconfig.*.json
+# Project config and generated docs that must stay versioned.
+!.releaserc.json
+!**/audit-exceptions.json
+!docs/architecture/*.json
 .env
 .env.*
 *.pem

@@ -63,6 +63,9 @@ jobs:
   architecture:
     needs: deploy-prd
     uses: ./.github/workflows/architecture.yml
+    # publish reads repository secrets (GitHub App); a reusable workflow only
+    # receives them when they are passed explicitly.
+    secrets: inherit
     permissions:
       contents: read
       id-token: write

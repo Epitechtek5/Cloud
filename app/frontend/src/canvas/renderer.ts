@@ -1,5 +1,6 @@
-import { GRID_SIZE, TILE_SIZE } from '../contract';
-import { gridToScreen, visibleTileRange, type Viewport } from './geometry';
+import { GRID_SIZE, TILE_SIZE, type Rgb } from '../contract';
+import { brushOrigin } from './brush';
+import { gridToScreen, rgbToCss, visibleTileRange, type Viewport } from './geometry';
 import type { CanvasTileSurface } from './surface';
 
 export interface PixelRef {
@@ -9,6 +10,10 @@ export interface PixelRef {
 
 export interface RenderState {
   vp: Viewport;
+  /** Optimistic pixels not yet confirmed by the server. */
+  pending: Iterable<{ x: number; y: number; color: Rgb }>;
+  /** Footprint preview of the brush under the cursor. */
+  brush: { x: number; y: number; size: number } | null;
   getTile: (tx: number, ty: number) => CanvasTileSurface | undefined;
   selection: PixelRef | null;
   hover: PixelRef | null;
@@ -36,7 +41,7 @@ export class Renderer {
     this.canvas.style.height = `${height}px`;
   }
 
-  render({ vp, getTile, selection, hover }: RenderState): void {
+  render({ vp, getTile, pending, brush, selection, hover }: RenderState): void {
     const { ctx, dpr } = this;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.imageSmoothingEnabled = false;
@@ -63,9 +68,27 @@ export class Renderer {
       }
     }
 
+    for (const p of pending) {
+      const a = gridToScreen(vp, p.x, p.y);
+      const x0 = Math.floor(a.sx);
+      const y0 = Math.floor(a.sy);
+      ctx.fillStyle = rgbToCss(p.color);
+      ctx.fillRect(x0, y0, Math.max(1, Math.floor(a.sx + vp.scale) - x0), Math.max(1, Math.floor(a.sy + vp.scale) - y0));
+    }
+
     if (vp.scale >= 10) this.drawPixelGrid(vp);
+    if (brush) this.brushPreview(vp, brush);
     if (hover && vp.scale >= 4) this.outline(vp, hover, 'rgba(88,101,242,0.55)', 1);
     if (selection) this.outline(vp, selection, ACCENT, 2);
+  }
+
+  private brushPreview(vp: Viewport, b: { x: number; y: number; size: number }): void {
+    const a = gridToScreen(vp, brushOrigin(b.x, b.size), brushOrigin(b.y, b.size));
+    this.ctx.strokeStyle = ACCENT;
+    this.ctx.lineWidth = 2;
+    this.ctx.setLineDash([4, 3]);
+    this.ctx.strokeRect(a.sx, a.sy, Math.max(b.size * vp.scale, 3), Math.max(b.size * vp.scale, 3));
+    this.ctx.setLineDash([]);
   }
 
   private drawPixelGrid(vp: Viewport): void {
