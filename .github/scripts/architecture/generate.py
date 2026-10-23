@@ -10,6 +10,7 @@ import json
 import os
 import re
 import sys
+import urllib.error
 import urllib.request
 
 GROUPS = ["network", "compute", "data", "observability"]
@@ -29,7 +30,6 @@ def call_model(payload: dict) -> str:
     body = {
         "model": os.environ.get("ARCH_MODEL", "claude-haiku-5-5"),
         "max_tokens": 4096,
-        "temperature": 0,
         "system": SYSTEM,
         "messages": [{"role": "user", "content": json.dumps(payload, sort_keys=True)}],
     }
@@ -42,8 +42,11 @@ def call_model(payload: dict) -> str:
             "content-type": "application/json",
         },
     )
-    with urllib.request.urlopen(request, timeout=120) as response:
-        return json.load(response)["content"][0]["text"]
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            return json.load(response)["content"][0]["text"]
+    except urllib.error.HTTPError as error:
+        sys.exit(f"Anthropic API error {error.code} (model {body['model']}): {error.read().decode()}")
 
 
 def parse_json(text: str) -> dict:
