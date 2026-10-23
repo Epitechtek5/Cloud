@@ -17,6 +17,7 @@ jobs:
   # names leave this job (attribute values may be sensitive and are dropped).
   extract:
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 15
     environment: prd
     permissions:
       contents: read
@@ -58,6 +59,7 @@ jobs:
   generate:
     needs: extract
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 15
     environment: prd
     steps:
       - uses: actions/checkout@v4
@@ -82,6 +84,7 @@ jobs:
   publish:
     needs: generate
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
     steps:
       - id: app-token
         uses: actions/create-github-app-token@v1
