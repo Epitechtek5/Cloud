@@ -36,3 +36,10 @@ subject-cloud-native.txt
 # Build output
 dist/
 node_modules/
+
+# Node / frontend
+node_modules/
+dist/
+coverage/
+.vite/
+*.local

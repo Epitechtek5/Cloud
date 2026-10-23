@@ -1,12 +1,24 @@
 {
-  "name": "frontend",
-  "version": "0.0.0",
+  "name": "pixel-canvas-frontend",
   "private": true,
-  "description": "Static frontend (placeholder base, no dependencies yet)",
+  "version": "0.0.0",
+  "type": "module",
   "scripts": {
-    "lint": "node --check scripts/build.mjs",
-    "typecheck": "node -e \"console.log('no TypeScript yet')\"",
-    "test": "node --test",
-    "build": "node scripts/build.mjs"
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.5",
+    "eslint": "^10.13.0",
+    "globals": "^17.13.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.72.0",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
   }
 }
