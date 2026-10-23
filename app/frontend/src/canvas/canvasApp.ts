@@ -1,4 +1,4 @@
-import type { Backend } from '../contract';
+import { GRID_SIZE, type Backend } from '../contract';
 import { Controls } from './controls';
 import {
   clampViewport,
@@ -34,7 +34,7 @@ export class CanvasApp {
 
   constructor(private canvas: HTMLCanvasElement, backend: Backend, private hooks: CanvasHooks) {
     this.renderer = new Renderer(canvas);
-    this.vp = { cx: 5000, cy: 5000, scale: 4, width: 1, height: 1 };
+    this.vp = { cx: GRID_SIZE / 2, cy: GRID_SIZE / 2, scale: 4, width: 1, height: 1 };
     this.tiles = new TileManager(backend.tiles, backend.realtime, () => new CanvasTileSurface(), () => this.requestDraw());
 
     new Controls(canvas, {

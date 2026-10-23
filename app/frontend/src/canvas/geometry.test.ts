@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { GRID_SIZE, TILES_PER_SIDE } from '../contract';
-import { MAX_SCALE, MIN_SCALE, panBy, screenToGrid, gridToScreen, visibleTileRange, zoomAt, type Viewport } from './geometry';
+import { MAX_SCALE, MIN_SCALE, panBy, screenToGrid, gridToScreen, tileOfPixel, visibleTileRange, zoomAt, type Viewport } from './geometry';
 
 const vp = (over: Partial<Viewport> = {}): Viewport => ({ cx: 5000, cy: 5000, scale: 1, width: 800, height: 600, ...over });
 
@@ -49,5 +49,12 @@ describe('geometry', () => {
     expect(r.ty0).toBe(0);
     const far = visibleTileRange(vp({ cx: GRID_SIZE, cy: GRID_SIZE, scale: 1 }), 2);
     expect(far.tx1).toBe(TILES_PER_SIDE - 1);
+  });
+
+  it('stays bounded at the far corner of the 100k grid', () => {
+    expect(tileOfPixel(GRID_SIZE - 1)).toBe(TILES_PER_SIDE - 1);
+    const r = visibleTileRange(vp({ cx: GRID_SIZE - 1, cy: GRID_SIZE - 1, scale: 0.5, width: 1920, height: 1080 }), 1);
+    expect(r.tx1).toBe(TILES_PER_SIDE - 1);
+    expect((r.tx1 - r.tx0 + 1) * (r.ty1 - r.ty0 + 1)).toBeLessThanOrEqual(150);
   });
 });

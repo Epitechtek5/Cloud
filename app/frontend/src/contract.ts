@@ -2,7 +2,7 @@
 // Everything the UI needs goes through these interfaces so that the GCP
 // implementation and the in-browser mock are interchangeable.
 
-export const GRID_SIZE = 10_000;
+export const GRID_SIZE = 100_000;
 export const TILE_SIZE = 256;
 export const TILES_PER_SIDE = Math.ceil(GRID_SIZE / TILE_SIZE);
 

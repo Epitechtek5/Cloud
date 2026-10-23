@@ -30,7 +30,7 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-/** Deterministic pseudo-artwork so the 10000x10000 grid looks populated. */
+/** Deterministic pseudo-artwork so the whole grid looks populated. */
 function generateTile(tx: number, ty: number): Uint8ClampedArray | null {
   const rnd = mulberry32((tx * 73856093) ^ (ty * 19349663) ^ 0x9e3779b9);
   if (rnd() < 0.55) return null;

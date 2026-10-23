@@ -1,6 +1,6 @@
 # Frontend — Pixel Canvas
 
-Canvas 10000×10000 temps réel, utilisable en web et en Discord Activity.
+Canvas 100 000 × 100 000 temps réel (≈ 153 000 tuiles de 256×256, chargées à la demande), utilisable en web et en Discord Activity.
 Vite + TypeScript, rendu Canvas 2D, aucune dépendance runtime.
 
 ## Commandes
@@ -34,5 +34,6 @@ npm run build      # un seul artefact, promu dev → prd par la CI (services GCP
 
 ## Limite connue
 
-Zoom arrière plafonné à 0,5× (≈ 100 tuiles) ; une couche d'aperçu sous-échantillonnée
-permettrait de voir la grille entière.
+Zoom arrière plafonné à 0,5× (≈ 100 tuiles) : à cette échelle on voit ~1 % de la largeur de la grille.
+Une couche d'aperçu sous-échantillonnée (mini-map) devient nécessaire pour s'y repérer ; en attendant,
+le formulaire « aller à (x, y) » permet de se téléporter.

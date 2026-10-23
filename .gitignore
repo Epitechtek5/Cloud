@@ -1,17 +1,37 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Credentials / secrets
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+.env
+.env.*
+*.pem
+*.key
+
+# Local
+.claude/settings.local.json
+.DS_Store
+Thumbs.db
+
+subject-cloud-native.txt
 # Node / frontend
 node_modules/
 dist/
 coverage/
 .vite/
 *.local
-.env.local
-.env.*.local
-
-# Terraform
-*.tfstate
-*.tfstate.*
-.terraform/
-
-# Secrets / local
-.env
-*.pem
