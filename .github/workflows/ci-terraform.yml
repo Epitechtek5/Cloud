@@ -26,9 +26,10 @@ jobs:
 
       - name: terraform validate
         run: |
+          # foundation and serverless must exist; access is optional.
           for stack in foundation serverless access; do
-            if ! ls infra/$stack/*.tf >/dev/null 2>&1; then
-              echo "::notice::infra/$stack has no .tf files, skipping"
+            if [ "$stack" = "access" ] && ! ls infra/access/*.tf >/dev/null 2>&1; then
+              echo "::notice::infra/access has no .tf files, skipping"
               continue
             fi
             echo "::group::validate $stack"
@@ -71,44 +72,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check the stack has Terraform code
-        id: stack
-        run: |
-          if ls "infra/$STACK"/*.tf >/dev/null 2>&1; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::notice::infra/$STACK has no .tf files, skipping"
-            echo "present=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - if: steps.stack.outputs.present == 'true'
-        uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v3
         with:
           terraform_wrapper: false
 
       # Read-only service account, not bound to a GitHub Environment so a PR
       # plan never waits for the prd reviewers.
-      - if: steps.stack.outputs.present == 'true'
-        uses: google-github-actions/auth@v2
+      - uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_PLAN_SERVICE_ACCOUNT }}
 
-      - if: steps.stack.outputs.present == 'true'
-        name: terraform init
+      - name: terraform init
         run: |
           terraform -chdir="infra/$STACK" init -input=false \
             -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
             -backend-config="prefix=$STACK/$ENV"
 
-      - if: steps.stack.outputs.present == 'true'
-        name: terraform plan
+      - name: terraform plan
         run: |
           terraform -chdir="infra/$STACK" plan -input=false -lock=false \
             -var-file="$ENV.tfvars" -out="$RUNNER_TEMP/tfplan"
           terraform -chdir="infra/$STACK" show -no-color "$RUNNER_TEMP/tfplan" > "$RUNNER_TEMP/plan.txt"
 
-      - if: always() && steps.stack.outputs.present == 'true'
+      - if: always()
         name: Comment the plan on the PR
         uses: actions/github-script@v7
         with:
