@@ -19,6 +19,16 @@ npm run build      # un seul artefact, promu dev → prd par la CI (services GCP
 - `src/canvas/` : géométrie viewport, `TileManager` (tuiles 256×256), rendu, contrôles.
 - `src/ui/hud.ts` : coordonnées, « aller à », inspecteur de pixel, overlay debug (touche `d`).
 
+## Dessin
+
+- Outils : **Inspect** (`V`, clic = sélection + « Paint this pixel ») et **Brush** (`B`, taille `[` / `]`, 1 à 32).
+  En mode brush : glisser dessine ; déplacement avec clic milieu/droit, `Espace`+glisser ou deux doigts.
+- Un trait est interpolé (Bresenham), dédupliqué, regroupé (~100 ms) puis envoyé par lots de 256 px max
+  via `Api.draw(pixels, batchId)` (gateway → proxy → broker). Jamais d'écriture directe dans le stockage.
+- Rendu optimiste (`DrawController.pending`) : le pixel s'affiche tout de suite, puis l'écho temps réel le remplace.
+  Rejeté (quota, pause) ou sans réponse sous 15 s : il disparaît avec un message.
+- Mock : limite de 20 px/min par défaut ; `?limit=1000` dans l'URL ou `__mock.setLimit(n)` / `__mock.setPaused(true)` en console.
+
 ## Règles clés
 
 - **Pas de polling** : `setInterval` est interdit par ESLint (sauf dans le mock qui simule

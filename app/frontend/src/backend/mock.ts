@@ -12,11 +12,8 @@ import {
   type UserEvent,
 } from '../contract';
 import { tileKey, tileOfPixel } from '../canvas/geometry';
+import { PALETTE } from '../canvas/palette';
 
-const PALETTE = [
-  0xffffff, 0xe4e4e4, 0x888888, 0x222222, 0xffa7d1, 0xe50000, 0xe59500, 0xa06a42,
-  0xe5d900, 0x94e044, 0x02be01, 0x00d3dd, 0x0083c7, 0x0000ea, 0xcf6ee4, 0x820080,
-];
 const SEED_TS = Date.UTC(2026, 0, 1);
 
 function mulberry32(seed: number): () => number {
@@ -62,9 +59,20 @@ export interface MockOptions {
   latency?: number;
   /** Simulated "other users" drawing live, pixels/second (0 disables). */
   botRate?: number;
+  /** Pixels per minute allowed for the local user (the real default is 20). */
+  rateLimit?: number;
 }
 
-export function createMockBackend({ latency = 60, botRate = 25 }: MockOptions = {}): Backend {
+export function createMockBackend({ latency = 60, botRate = 25, rateLimit }: MockOptions = {}): Backend {
+  let limit = rateLimit ?? (Number(new URLSearchParams(globalThis.location?.search).get('limit')) || 20);
+  const sent: number[] = []; // timestamps of the local user's accepted pixels (sliding minute)
+  const used = (): number => {
+    const cutoff = Date.now() - 60_000;
+    while (sent.length && sent[0]! < cutoff) sent.shift();
+    return sent.length;
+  };
+  const emitUser = (e: UserEvent) => userSubs.forEach((cb) => cb(e));
+  const emitQuota = () => emitUser({ type: 'quota', remaining: Math.max(0, limit - used()), limit });
   const live = new Map<string, Map<string, PixelDelta>>(); // tile -> "x,y" -> delta
   const tileSubs = new Map<string, Set<(d: PixelDelta[]) => void>>();
   const sessionSubs = new Set<(s: SessionState) => void>();
@@ -140,6 +148,7 @@ export function createMockBackend({ latency = 60, botRate = 25 }: MockOptions = 
       },
       subscribeUserEvents(cb) {
         userSubs.add(cb);
+        cb({ type: 'quota', remaining: Math.max(0, limit - used()), limit });
         return () => userSubs.delete(cb);
       },
     },
@@ -149,10 +158,18 @@ export function createMockBackend({ latency = 60, botRate = 25 }: MockOptions = 
         // Like the real pipeline: accepted (202) now, processed asynchronously.
         setTimeout(() => {
           if (session.paused) {
-            userSubs.forEach((cb) => cb({ type: 'rejected', reason: 'paused', batchId, pixels }));
+            emitUser({ type: 'rejected', reason: 'paused', batchId, pixels });
             return;
           }
-          for (const p of pixels) commit({ x: p.x, y: p.y, color: p.color, author: 'me', ts: Date.now() });
+          const allowed = Math.max(0, limit - used());
+          const accepted = pixels.slice(0, allowed);
+          const refused = pixels.slice(allowed);
+          for (const p of accepted) {
+            sent.push(Date.now());
+            commit({ x: p.x, y: p.y, color: p.color, author: 'me', ts: Date.now() });
+          }
+          if (refused.length) emitUser({ type: 'rejected', reason: 'rate_limited', batchId, pixels: refused });
+          emitQuota();
         }, 80);
       },
       async pixelInfo(x, y): Promise<PixelInfo | null> {
@@ -177,6 +194,10 @@ export function createMockBackend({ latency = 60, botRate = 25 }: MockOptions = 
     setPaused(paused: boolean) {
       session.paused = paused;
       sessionSubs.forEach((cb) => cb({ ...session }));
+    },
+    setLimit(n: number) {
+      limit = n;
+      emitQuota();
     },
     gridSize: GRID_SIZE,
   };

@@ -19,6 +19,7 @@ export class Hud {
   private debug = el('pre', 'debug');
   private inspectToken = 0;
   private app!: CanvasApp;
+  private current: PixelRef | null = null;
 
   constructor(root: HTMLElement, private api: Api, showDebug: boolean) {
     const bar = el('header', 'bar');
@@ -44,11 +45,12 @@ export class Hud {
     const s = this.app.stats;
     this.debug.textContent =
       `zoom     ${s.scale.toFixed(2)}x\ntiles    ${s.tiles} (${s.loading} loading)\n` +
-      `deltas   ${s.deltas}\nframe    ${s.frameMs.toFixed(1)} ms`;
+      `deltas   ${s.deltas}\npending  ${s.pending}\nframe    ${s.frameMs.toFixed(1)} ms`;
   }
 
   async showPixel(p: PixelRef | null): Promise<void> {
     const token = ++this.inspectToken;
+    this.current = p;
     if (!p) {
       this.inspector.classList.add('hidden');
       return;
@@ -69,6 +71,9 @@ export class Hud {
          <div class="row"><span class="muted">Author</span> ${escapeHtml(info.authorName)}</div>
          <div class="row"><span class="muted">Updated</span> ${new Date(info.ts).toLocaleString()}</div>`
       : `<h3>Pixel ${p.x}, ${p.y}</h3><p class="muted">Never painted.</p>`;
+    const paint = el('button', 'paint', 'Paint this pixel');
+    paint.addEventListener('click', () => this.current && this.app.paintPixel(this.current));
+    this.inspector.append(paint);
   }
 
   private goToForm(): HTMLFormElement {
