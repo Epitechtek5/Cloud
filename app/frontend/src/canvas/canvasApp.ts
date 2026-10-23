@@ -1,5 +1,8 @@
 import { GRID_SIZE, type Backend } from '../contract';
-import { Controls } from './controls';
+import type { DrawController } from '../draw/drawController';
+import type { ToolState } from '../ui/toolState';
+import { strokePixels, type Point } from './brush';
+import { Controls, type StrokePhase } from './controls';
 import {
   clampViewport,
   inGrid,
@@ -32,14 +35,34 @@ export class CanvasApp {
   private raf = 0;
   lastFrameMs = 0;
 
-  constructor(private canvas: HTMLCanvasElement, backend: Backend, private hooks: CanvasHooks) {
+  private lastStroke: Point | null = null;
+
+  constructor(
+    private canvas: HTMLCanvasElement,
+    backend: Backend,
+    private hooks: CanvasHooks,
+    private draw: DrawController,
+    private tools: ToolState,
+  ) {
     this.renderer = new Renderer(canvas);
     this.vp = { cx: GRID_SIZE / 2, cy: GRID_SIZE / 2, scale: 4, width: 1, height: 1 };
-    this.tiles = new TileManager(backend.tiles, backend.realtime, () => new CanvasTileSurface(), () => this.requestDraw());
+    this.tiles = new TileManager(
+      backend.tiles,
+      backend.realtime,
+      () => new CanvasTileSurface(),
+      () => this.requestDraw(),
+      (d) => this.draw.onDelta(d),
+    );
+    this.tools.subscribe(() => {
+      canvas.style.cursor = this.tools.tool === 'brush' ? 'crosshair' : 'default';
+      this.requestDraw();
+    });
 
     new Controls(canvas, {
       getViewport: () => this.vp,
       setViewport: (vp) => this.setViewport(vp),
+      getTool: () => this.tools.tool,
+      onStroke: (sx, sy, phase) => this.stroke(sx, sy, phase),
       onTap: (sx, sy) => this.select(this.pixelAt(sx, sy)),
       onHover: (sx, sy) => {
         const p = sy === null ? null : this.pixelAt(sx, sy);
@@ -59,6 +82,7 @@ export class CanvasApp {
       loading: this.tiles.loadingCount,
       deltas: this.tiles.deltaCount,
       frameMs: this.lastFrameMs,
+      pending: this.draw.pending.size,
     };
   }
 
@@ -79,6 +103,27 @@ export class CanvasApp {
   requestDraw(): void {
     this.dirty = true;
     if (!this.raf) this.raf = requestAnimationFrame(this.frame);
+  }
+
+  private stroke(sx: number, sy: number, phase: StrokePhase): void {
+    if (phase === 'end') {
+      this.lastStroke = null;
+      this.draw.flush();
+      return;
+    }
+    const p = this.pixelAt(sx, sy);
+    if (!p) {
+      this.lastStroke = null; // left the grid: do not draw a line across the gap
+      return;
+    }
+    this.draw.paint(strokePixels(phase === 'start' ? null : this.lastStroke, p, this.tools.size, this.tools.color));
+    this.lastStroke = p;
+  }
+
+  /** Paints a single pixel with the current color (inspector button). */
+  paintPixel(p: PixelRef): void {
+    this.draw.paint([{ x: p.x, y: p.y, color: this.tools.color }]);
+    this.draw.flush();
   }
 
   private pixelAt(sx: number, sy: number): PixelRef | null {
@@ -110,6 +155,8 @@ export class CanvasApp {
     this.renderer.render({
       vp: this.vp,
       getTile: (tx, ty) => this.tiles.get(tx, ty),
+      pending: this.draw.pending.values(),
+      brush: this.tools.tool === 'brush' && this.hover ? { ...this.hover, size: this.tools.size } : null,
       selection: this.selection,
       hover: this.hover,
     });

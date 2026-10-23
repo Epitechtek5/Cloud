@@ -16,3 +16,19 @@ html, body, #app { margin: 0; height: 100%; background: var(--bg); color: var(--
 .muted { color: var(--muted); }
 .hidden, [hidden] { display: none !important; }
 .debug { position: absolute; left: 12px; bottom: 12px; margin: 0; padding: 8px 10px; background: #000a; border-radius: 6px; font-size: 12px; }
+
+.toolbar { position: absolute; left: 12px; top: 72px; width: 200px; padding: 10px 12px; background: var(--panel); border-radius: 8px; display: flex; flex-direction: column; gap: 10px; }
+.toolbar .row { display: flex; gap: 6px; }
+.toolbar .col { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.tool { flex: 1; padding: 6px 4px; background: var(--bg); color: var(--fg); border: 1px solid #3f4147; border-radius: 4px; cursor: pointer; font-size: 12px; }
+.tool.active { background: var(--accent); border-color: var(--accent); }
+.palette { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; }
+.swatch { aspect-ratio: 1; border: 2px solid transparent; border-radius: 3px; cursor: pointer; padding: 0; outline: 1px solid #0006; }
+.swatch.selected { border-color: var(--fg); }
+.toolbar input[type=color] { width: 100%; height: 28px; border: 0; background: none; padding: 0; cursor: pointer; }
+.quota { font-size: 12px; min-height: 1em; }
+.banner { position: absolute; top: 72px; left: 50%; transform: translateX(-50%); background: #f23f43; color: #fff; padding: 6px 14px; border-radius: 6px; font-size: 13px; }
+.toasts { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; align-items: center; pointer-events: none; }
+.toast { background: var(--panel); padding: 8px 14px; border-radius: 6px; font-size: 13px; border-left: 4px solid var(--accent); }
+.toast.error { border-left-color: #f23f43; }
+.paint { margin-top: 8px; width: 100%; background: var(--accent); color: #fff; border: 0; border-radius: 4px; padding: 6px; cursor: pointer; }

@@ -35,6 +35,7 @@ export class TileManager<S extends TileSurface = TileSurface> {
     private realtime: RealtimeChannel,
     private createSurface: (tx: number, ty: number) => S,
     private onChange: () => void,
+    private onDelta?: (d: PixelDelta) => void,
   ) {}
 
   get size(): number {
@@ -113,6 +114,7 @@ export class TileManager<S extends TileSurface = TileSurface> {
       // A negative color means "cleared" (admin /clear).
       if (d.color < 0) entry.surface.clearPixel(lx, ly);
       else entry.surface.setPixel(lx, ly, rgbToCss(d.color));
+      this.onDelta?.(d);
     }
     this.deltaCount += deltas.length;
     if (deltas.length > 0) this.onChange();
