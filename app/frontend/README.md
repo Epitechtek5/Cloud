@@ -9,7 +9,7 @@ Vite + TypeScript, rendu Canvas 2D, aucune dépendance runtime.
 npm install
 npm run dev        # backend mock en navigateur, aucun cloud requis
 npm run lint && npm run typecheck && npm test
-npm run build:dev  # / build:prd  → cible le backend GCP
+npm run build      # un seul artefact, promu dev → prd par la CI (services GCP réels)
 ```
 
 ## Architecture
@@ -27,6 +27,10 @@ npm run build:dev  # / build:prd  → cible le backend GCP
   supprime le raster **et** l'abonnement, donc le cache n'est jamais périmé.
 - Le mock est exclu des bundles `dev`/`prd` (tree-shaking via `__BACKEND__`).
 - Aucun secret côté front : seul le `client_id` Discord (public) est injecté au build.
+- **Build once, deploy everywhere** (cf. `deploy-env.yml`) : le build ne contient rien de spécifique
+  à un environnement. L'URL de l'API Gateway et la config Firebase sont lues au runtime dans
+  `/config.json` (voir `src/runtimeConfig.ts`), à générer depuis la stack Terraform `serverless`.
+  Le mock n'est actif que pour `npm run dev`.
 
 ## Limite connue
 

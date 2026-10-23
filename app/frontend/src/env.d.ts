@@ -1,11 +1,8 @@
 /// <reference types="vite/client" />
 
 interface AppConfig {
-  env: string;
-  backend: 'mock' | 'gcp';
+  /** Public Discord application id (not a secret). */
   discordClientId: string;
-  apiBase: string;
-  firebase: { apiKey: string; projectId: string; authDomain: string };
 }
 
 declare const __APP_CONFIG__: AppConfig;
