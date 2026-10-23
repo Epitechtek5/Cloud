@@ -1,0 +1,13 @@
+title = "Cloud gitleaks configuration"
+
+[extend]
+# Keep the full default ruleset.
+useDefault = true
+
+# Minimal allowlist. Every entry needs a comment saying what it is, why it is
+# safe, and who approved it in review. Prefer fixing the leak (and rotating the
+# secret) over adding an entry here.
+[allowlist]
+description = "Project allowlist (empty on purpose)"
+paths = []
+regexes = []
