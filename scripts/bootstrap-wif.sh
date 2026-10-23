@@ -88,7 +88,10 @@ if [ "${SKIP_GH:-0}" = "1" ]; then
   exit 0
 fi
 
-gh api -X PUT "repos/${REPO}/environments/${ENV_NAME}" >/dev/null
+# Only create it when missing: a PUT on an existing Environment can reset its
+# protection rules (required reviewers).
+gh api "repos/${REPO}/environments/${ENV_NAME}" >/dev/null 2>&1 ||
+  gh api -X PUT "repos/${REPO}/environments/${ENV_NAME}" >/dev/null
 gh variable set GCP_WORKLOAD_IDENTITY_PROVIDER --repo "${REPO}" --env "${ENV_NAME}" --body "${PROVIDER_NAME}"
 gh variable set GCP_SERVICE_ACCOUNT --repo "${REPO}" --env "${ENV_NAME}" --body "${DEPLOY_EMAIL}"
 gh variable set TF_STATE_BUCKET --repo "${REPO}" --env "${ENV_NAME}" --body "${BUCKET}"
