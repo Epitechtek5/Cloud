@@ -71,6 +71,11 @@ gcloud storage buckets add-iam-policy-binding "gs://${BUCKET}" --project "${PROJ
   --member "serviceAccount:${DEPLOY_EMAIL}" --role roles/storage.objectAdmin >/dev/null
 gcloud storage buckets add-iam-policy-binding "gs://${BUCKET}" --project "${PROJECT_ID}" \
   --member "serviceAccount:${PLAN_EMAIL}" --role roles/storage.objectViewer >/dev/null
+# `terraform init` writes a .tflock object even for a plan: allow writes on
+# those lock files only, never on the state itself.
+gcloud storage buckets add-iam-policy-binding "gs://${BUCKET}" --project "${PROJECT_ID}" \
+  --member "serviceAccount:${PLAN_EMAIL}" --role roles/storage.objectUser \
+  --condition "title=plan-lock-files,expression=resource.name.endsWith('.tflock')" >/dev/null
 
 SUFFIX="$(echo "${ENV_NAME}" | tr '[:lower:]' '[:upper:]')"
 echo ">> GitHub variables for ${ENV_NAME}"

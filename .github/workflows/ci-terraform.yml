@@ -72,7 +72,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: hashicorp/setup-terraform@v3
+      # A stack without .tf files has nothing to plan yet (same rule as deploy-env).
+      - name: Detect stack
+        id: stack
+        run: |
+          if ls "infra/$STACK"/*.tf >/dev/null 2>&1; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::infra/$STACK has no .tf files, skipping"
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.stack.outputs.found == 'true'
+        uses: hashicorp/setup-terraform@v3
         with:
           terraform_wrapper: false
 
@@ -80,24 +92,27 @@ jobs:
       # plan never waits for the prd reviewers. Without an Environment the
       # per-env values are repository variables suffixed _DEV / _PRD
       # (written by scripts/bootstrap-wif.sh).
-      - uses: google-github-actions/auth@v2
+      - if: steps.stack.outputs.found == 'true'
+        uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars[format('GCP_WORKLOAD_IDENTITY_PROVIDER_{0}', matrix.env)] }}
           service_account: ${{ vars[format('GCP_PLAN_SERVICE_ACCOUNT_{0}', matrix.env)] }}
 
       - name: terraform init
+        if: steps.stack.outputs.found == 'true'
         run: |
           terraform -chdir="infra/$STACK" init -input=false \
             -backend-config="bucket=${{ vars[format('TF_STATE_BUCKET_{0}', matrix.env)] }}" \
             -backend-config="prefix=$STACK/$ENV"
 
       - name: terraform plan
+        if: steps.stack.outputs.found == 'true'
         run: |
           terraform -chdir="infra/$STACK" plan -input=false -lock=false \
             -var-file="$ENV.tfvars" -out="$RUNNER_TEMP/tfplan"
           terraform -chdir="infra/$STACK" show -no-color "$RUNNER_TEMP/tfplan" > "$RUNNER_TEMP/plan.txt"
 
-      - if: always()
+      - if: always() && steps.stack.outputs.found == 'true'
         name: Comment the plan on the PR
         uses: actions/github-script@v7
         with:
