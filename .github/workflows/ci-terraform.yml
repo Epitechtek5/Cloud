@@ -77,16 +77,18 @@ jobs:
           terraform_wrapper: false
 
       # Read-only service account, not bound to a GitHub Environment so a PR
-      # plan never waits for the prd reviewers.
+      # plan never waits for the prd reviewers. Without an Environment the
+      # per-env values are repository variables suffixed _DEV / _PRD
+      # (written by scripts/bootstrap-wif.sh).
       - uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.GCP_PLAN_SERVICE_ACCOUNT }}
+          workload_identity_provider: ${{ vars[format('GCP_WORKLOAD_IDENTITY_PROVIDER_{0}', matrix.env)] }}
+          service_account: ${{ vars[format('GCP_PLAN_SERVICE_ACCOUNT_{0}', matrix.env)] }}
 
       - name: terraform init
         run: |
           terraform -chdir="infra/$STACK" init -input=false \
-            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="bucket=${{ vars[format('TF_STATE_BUCKET_{0}', matrix.env)] }}" \
             -backend-config="prefix=$STACK/$ENV"
 
       - name: terraform plan
