@@ -15,24 +15,28 @@ export function showMessage(root: HTMLElement, text: string, kind: 'info' | 'err
   return remove;
 }
 
-export function showLogin(root: HTMLElement, onLogin: () => void, error?: string): () => void {
+export function showLogin(root: HTMLElement, onLogin: () => Promise<void> | void, error?: string): () => void {
   const { el, remove } = card(root);
   const h = document.createElement('h1');
   h.textContent = 'Pixel Canvas';
   const b = document.createElement('button');
   b.className = 'login';
   b.textContent = 'Login with Discord';
-  b.onclick = () => {
+  const msg = document.createElement('p');
+  msg.className = 'error';
+  msg.textContent = error ?? '';
+  b.onclick = async () => {
     b.disabled = true;
-    onLogin();
+    msg.textContent = '';
+    try {
+      await onLogin(); // in the browser this navigates away to Discord
+    } catch (e) {
+      // e.g. crypto.subtle unavailable over plain http, or sessionStorage blocked
+      msg.textContent = e instanceof Error ? e.message : 'Login failed.';
+      b.disabled = false;
+    }
   };
-  el.append(h, b);
-  if (error) {
-    const p = document.createElement('p');
-    p.className = 'error';
-    p.textContent = error;
-    el.append(p);
-  }
+  el.append(h, b, msg);
   return remove;
 }
 

@@ -4,12 +4,12 @@ Le front s'exécute de deux façons avec le même code (`app/frontend`) :
 
 | | Navigateur (`web`) | Discord Activity (`activity`) |
 |---|---|---|
-| Détection | pas de `frame_id` dans l'URL | `frame_id` présent (fourni par Discord) |
+| Détection | pas dans une iframe, ou pas de `frame_id` | dans une iframe **et** `frame_id` présent (fourni par Discord) |
 | Login | redirect OAuth2 (code + PKCE) puis retour sur l'app | `sdk.authorize` → échange → `sdk.authenticate`, sans redirect |
 | Réseau | direct | passe par le proxy Discord (`<app_id>.discordsays.com`), voir mappings |
 | Token | en mémoire (jamais dans `localStorage`) | en mémoire |
 
-Scope demandé : `identify` uniquement. Application Discord : `1562814087900037260` (le `client_id` est public).
+Scope demandé : `identify` uniquement. Il y a **une application Discord par environnement** (dev et prd) : le `client_id` (public) est donc lu au runtime dans `/config.json` (`discordClientId`), jamais figé au build, puisque le même artefact est promu de dev vers prd. Application de dev actuelle : `1562814087900037260`.
 
 ## 1. Réglages du Developer Portal (à faire une fois, par application dev/prd)
 
@@ -24,6 +24,8 @@ Scope demandé : `identify` uniquement. Application Discord : `15628140879000372
 | `/firestore` | `firestore.googleapis.com` | temps réel (listeners) |
 | `/identitytoolkit` | `identitytoolkit.googleapis.com` | connexion Firebase par custom token |
 | `/securetoken` | `securetoken.googleapis.com` | rafraîchissement du token Firebase |
+
+Si `apiBase` contient un chemin (`https://gw.example/v1`), il fait partie de la cible du mapping (`gw.example/v1`) : le SDK le retire de l'URL réécrite. Un `apiBase` relatif (`/api`, même origine) est déjà couvert par le mapping `/` et n'a pas d'entrée.
 
 Ces mêmes préfixes sont déclarés dans le code (`src/platform/context.ts`, `activityMappings` et `FIREBASE_HOSTS`) : `patchUrlMappings` du SDK réécrit alors `fetch`, `XMLHttpRequest` et `WebSocket` vers le proxy, sans changer le code appelant. **Les deux listes doivent rester identiques.**
 
@@ -61,16 +63,23 @@ Le front envoie ensuite `Authorization: Bearer <token>` sur tous les appels ; la
 ## 3. Tester
 
 - **Mock, sans Discord ni cloud** : `npm run dev` (utilisateur factice `dev-user`).
-- **Web contre les vrais services** : `BACKEND=gcp npm run dev`, avec un `/config.json` servi (voir `src/runtimeConfig.ts`).
+- **Web contre les vrais services** : `BACKEND=gcp npm run dev`, avec un `/config.json` servi (`env`, `apiBase`, `discordClientId`, `firebase`, voir `src/runtimeConfig.ts` ; `apiBase` sans `/` final).
 - **Activity en local** : lancer un tunnel public (`cloudflared tunnel --url http://localhost:5173`), mettre l'hôte du tunnel en cible du mapping `/` dans le portail, activer le mode développeur Discord, puis lancer l'Activity depuis un salon vocal (Activities). Une Activity non publiée n'est lançable que par les membres de l'équipe de l'application.
 
 ## 4. Point à valider : Firestore dans l'iframe
 
 Le temps réel Firestore passe par `fetch`/XHR (et WebChannel) vers `firestore.googleapis.com`. Avec les mappings ci-dessus et `patchUrlMappings`, il devrait être routé par le proxy, mais **cela doit être testé dans une vraie Activity** (flux long, reconnexions). Si cela ne tient pas, le plan B est un flux SSE ou WebSocket exposé par notre propre endpoint, derrière l'interface `RealtimeChannel` (aucun autre changement côté UI).
 
-## 5. Sécurité (ce qui est en place et testé)
+## 5. Comportements à connaître
 
-- `state` aléatoire vérifié au retour (un callback non initié est rejeté avant tout appel réseau) ; PKCE S256 ; `state` et verifier à usage unique.
+- **Hors de Discord** : si la page est ouverte dans un onglet normal (même avec `?frame_id=`), elle reste en mode web. Dans une iframe qui n'est pas Discord, la poignée de main expire après 15 s avec « Open this app from a voice channel in Discord ».
+- **Logout (web)** : l'application oublie la session (elle n'existe qu'en mémoire) mais **ne déconnecte pas de Discord**. Discord mémorise le consentement : un nouveau clic sur « Login with Discord » reconnecte aussitôt le même compte. Pour changer de compte, se déconnecter de discord.com.
+- **Après le login**, la query et le hash d'origine (`?debug`, liens directs) sont restaurés.
+
+## 6. Sécurité (ce qui est en place et testé)
+
+- `state` aléatoire vérifié au retour (un callback non initié est rejeté avant tout appel réseau) ; PKCE S256 ; `state` et verifier à usage unique, supprimés aussi quand Discord renvoie `?error=`.
+- Dans l'Activity, `fetch` est résolu à chaque appel : `patchUrlMappings` remplace `window.fetch`, une référence prise avant contournerait le proxy.
 - Token jamais écrit dans `localStorage` ni `sessionStorage`.
 - Scope minimal `identify` ; aucune clé ni secret côté front.
 - SDK Discord chargé à la demande, uniquement dans l'Activity.

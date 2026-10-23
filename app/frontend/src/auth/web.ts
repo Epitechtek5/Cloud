@@ -23,6 +23,14 @@ export interface WebAuthDeps {
 
 const K_STATE = 'oauth.state';
 const K_VERIFIER = 'oauth.verifier';
+const K_RETURN = 'oauth.return';
+const OAUTH_PARAMS = ['code', 'state', 'error', 'error_description'];
+
+/** Drops the OAuth parameters but keeps every other one verbatim (URLSearchParams would turn `?debug` into `?debug=`). */
+const stripOAuth = (search: string): string => {
+  const kept = search.replace(/^\?/, '').split('&').filter((p) => p && !OAUTH_PARAMS.includes(p.split('=')[0]!));
+  return kept.length ? `?${kept.join('&')}` : '';
+};
 const AUTHORIZE = 'https://discord.com/oauth2/authorize';
 
 /** Authorization-code + PKCE flow, scope `identify` only. The token is kept in memory. */
@@ -41,6 +49,10 @@ export class WebAuth implements AuthProvider {
     const verifier = randomString(48);
     this.d.storage.setItem(K_STATE, state);
     this.d.storage.setItem(K_VERIFIER, verifier);
+    // The redirect_uri carries no query (it must match the registered URI), so remember where
+    // the user was (?debug, deep links, #hash) and put it back after the callback.
+    const here = new URL(this.d.href);
+    this.d.storage.setItem(K_RETURN, stripOAuth(here.search) + here.hash);
     const q = new URLSearchParams({
       client_id: this.d.clientId,
       response_type: 'code',
@@ -58,6 +70,9 @@ export class WebAuth implements AuthProvider {
     const code = url.searchParams.get('code');
     const state = url.searchParams.get('state');
     if (url.searchParams.has('error')) {
+      // state and verifier are single-use: drop them even when the login was refused.
+      this.d.storage.removeItem(K_STATE);
+      this.d.storage.removeItem(K_VERIFIER);
       this.clearCallback(url);
       throw new AuthError('Discord login was cancelled.', 'login_required');
     }
@@ -87,7 +102,10 @@ export class WebAuth implements AuthProvider {
   }
 
   private clearCallback(url: URL): void {
-    for (const k of ['code', 'state', 'error', 'error_description']) url.searchParams.delete(k);
-    this.d.replaceUrl(url.pathname + (url.search || '') + url.hash);
+    const saved = this.d.storage.getItem(K_RETURN);
+    this.d.storage.removeItem(K_RETURN);
+    // Only a query/fragment is ever restored (same-origin history.replaceState).
+    const rest = saved !== null && /^[?#]|^$/.test(saved) ? saved : stripOAuth(url.search) + url.hash;
+    this.d.replaceUrl(url.pathname + rest);
   }
 }

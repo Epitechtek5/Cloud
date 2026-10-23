@@ -64,9 +64,47 @@ describe('WebAuth', () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
-  it('reports a cancelled login', async () => {
-    const { auth } = make('https://app.example/?error=access_denied');
+  it('reports a cancelled login and clears the single-use state so it cannot be replayed', async () => {
+    const storage = memStore();
+    storage.setItem('oauth.state', 'S');
+    storage.setItem('oauth.verifier', 'V');
+    storage.setItem('oauth.return', '?debug');
+    const { auth } = make('https://app.example/?error=access_denied', storage);
     await expect(auth.restore()).rejects.toMatchObject({ kind: 'login_required' });
+    expect(storage.data.size).toBe(0);
+    // A callback forged with the old state must now be refused.
+    const replay = make('https://app.example/?code=abc&state=S', storage);
+    await expect(replay.auth.restore()).rejects.toMatchObject({ kind: 'state_mismatch' });
+    expect(replay.fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('keeps the original query and hash across the login round trip', async () => {
+    const storage = memStore();
+    const first = make('https://app.example/play?debug=1&frame=x#spot', storage);
+    await first.auth.login();
+    expect(storage.getItem('oauth.return')).toBe('?debug=1&frame=x#spot');
+    const state = storage.getItem('oauth.state')!;
+    const back = make(`https://app.example/play?code=abc&state=${state}`, storage);
+    await back.auth.restore();
+    expect(back.replaceUrl).toHaveBeenCalledWith('/play?debug=1&frame=x#spot');
+    expect(storage.data.size).toBe(0);
+  });
+
+  it('does not save OAuth parameters as the return location', async () => {
+    const storage = memStore();
+    const { auth } = make('https://app.example/play?code=old&state=old&debug', storage);
+    await auth.login();
+    expect(storage.getItem('oauth.return')).toBe('?debug');
+  });
+
+  it('login rejects (instead of hanging) when storage is unavailable', async () => {
+    const storage = memStore();
+    storage.setItem = () => {
+      throw new Error('QuotaExceededError');
+    };
+    const { auth, redirect } = make('https://app.example/', storage);
+    await expect(auth.login()).rejects.toThrow('QuotaExceededError');
+    expect(redirect).not.toHaveBeenCalled();
   });
 
   it('token() requires a fresh session', async () => {

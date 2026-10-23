@@ -36,6 +36,19 @@ export interface ActivityAuthDeps {
   mappings: UrlMapping[];
   fetch: typeof fetch;
   loadSdk?: SdkLoader;
+  /** How long to wait for Discord's handshake before giving up. */
+  readyTimeoutMs?: number;
+}
+
+const READY_TIMEOUT_MS = 15_000;
+const NOT_IN_DISCORD = 'Discord did not answer. Open this app from a voice channel in Discord (Activities).';
+
+function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new AuthError(message, 'sdk')), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
 }
 
 /**
@@ -44,7 +57,10 @@ export interface ActivityAuthDeps {
  */
 export class ActivityAuth implements AuthProvider {
   session: Session | null = null;
-  private sdk: ActivitySdk | null = null;
+  // Cached separately: a failed ready() must be retryable WITHOUT loading a second SDK and
+  // patching fetch/XHR/WebSocket again (the proxies would stack and listeners be duplicated).
+  private booted: Promise<ActivitySdk> | null = null;
+  private ready: Promise<void> | null = null;
   private pending: Promise<Session> | null = null;
 
   constructor(private d: ActivityAuthDeps) {}
@@ -73,16 +89,34 @@ export class ActivityAuth implements AuthProvider {
     return this.pending;
   }
 
+  /** Loads the SDK and installs the URL mappings exactly once (before any network call). */
+  private boot(): Promise<ActivitySdk> {
+    this.booted ??= (async () => {
+      const { sdk, patchUrlMappings } = await (this.d.loadSdk ?? loadDiscordSdk)(this.d.clientId);
+      patchUrlMappings(this.d.mappings);
+      return sdk;
+    })().catch((e) => {
+      this.booted = null; // nothing was patched yet: a retry may load again
+      throw e;
+    });
+    return this.booted;
+  }
+
+  private async connect(): Promise<ActivitySdk> {
+    const sdk = await this.boot();
+    this.ready ??= withTimeout(sdk.ready(), this.d.readyTimeoutMs ?? READY_TIMEOUT_MS, NOT_IN_DISCORD).catch((e) => {
+      this.ready = null;
+      throw e;
+    });
+    await this.ready;
+    return sdk;
+  }
+
   private async run(): Promise<Session> {
     try {
-      if (!this.sdk) {
-        const { sdk, patchUrlMappings } = await (this.d.loadSdk ?? loadDiscordSdk)(this.d.clientId);
-        patchUrlMappings(this.d.mappings); // before any network call, so they go through the proxy
-        await sdk.ready();
-        this.sdk = sdk;
-      }
+      const sdk = await this.connect();
       const verifier = randomString(48);
-      const { code } = await this.sdk.commands.authorize({
+      const { code } = await sdk.commands.authorize({
         client_id: this.d.clientId,
         response_type: 'code',
         state: '',
@@ -93,7 +127,7 @@ export class ActivityAuth implements AuthProvider {
       });
       const { session, discordAccessToken } = await exchangeCode(this.d.fetch, this.d.apiBase, { code, codeVerifier: verifier, activity: true });
       if (!discordAccessToken) throw new AuthError('The login service did not return an Activity token.', 'exchange_failed');
-      await this.sdk.commands.authenticate({ access_token: discordAccessToken });
+      await sdk.commands.authenticate({ access_token: discordAccessToken });
       this.session = session;
       return session;
     } catch (e) {

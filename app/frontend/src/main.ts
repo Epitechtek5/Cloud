@@ -34,13 +34,13 @@ async function main(): Promise<void> {
     stop();
     const msg = e instanceof Error ? e.message : 'Unexpected error';
     // In the browser every auth failure is recoverable by logging in again; in an Activity it is fatal.
-    if (platform === 'web') showLogin(root, () => void auth.login(), msg);
+    if (platform === 'web') showLogin(root, () => auth.login(), msg);
     else showMessage(root, msg, 'error');
     return;
   }
   stop();
   if (!session) {
-    showLogin(root, () => void auth.login());
+    showLogin(root, () => auth.login());
     return;
   }
 
@@ -76,13 +76,9 @@ async function main(): Promise<void> {
   addUserBadge(
     root.querySelector('.bar'),
     session.user.username,
-    // Activities have no logout: the Discord session is the identity.
-    platform === 'web'
-      ? () => {
-          auth.logout();
-          location.reload();
-        }
-      : undefined,
+    // Activities have no logout: the Discord session is the identity. In the browser the session
+    // only lives in memory, so a reload is the logout (Discord remembers the consent, see docs).
+    platform === 'web' ? () => location.reload() : undefined,
   );
 
   app.requestDraw();

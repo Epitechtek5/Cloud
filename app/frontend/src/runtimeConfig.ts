@@ -4,9 +4,28 @@
  */
 export interface RuntimeConfig {
   env: string;
-  /** API Gateway base URL, e.g. https://xxx.gateway.dev */
+  /** API Gateway base URL without trailing slash; may carry a path (https://gw.example/v1) or be same-origin (/api). */
   apiBase: string;
+  /** Public Discord application id of THIS environment (dev and prd use different applications). */
+  discordClientId: string;
   firebase: { apiKey: string; projectId: string; authDomain: string };
+}
+
+const BAD = 'Invalid /config.json: expected { env, apiBase, discordClientId, firebase: { apiKey, projectId, authDomain } }';
+
+/** Strips trailing slashes and rejects anything that is not an http(s) URL or a same-origin path. */
+function normalizeApiBase(v: string): string {
+  if (v.startsWith('/') && !v.startsWith('//')) return v.replace(/\/+$/, '');
+  let u: URL;
+  try {
+    u = new URL(v);
+  } catch {
+    throw new Error(`Invalid /config.json: apiBase "${v}" is not a URL`);
+  }
+  if ((u.protocol !== 'https:' && u.protocol !== 'http:') || u.search || u.hash) {
+    throw new Error(`Invalid /config.json: apiBase "${v}" must be an http(s) URL without query or fragment`);
+  }
+  return u.origin + u.pathname.replace(/\/+$/, '');
 }
 
 export function parseRuntimeConfig(raw: unknown): RuntimeConfig {
@@ -16,14 +35,16 @@ export function parseRuntimeConfig(raw: unknown): RuntimeConfig {
     !o ||
     typeof o.env !== 'string' ||
     typeof o.apiBase !== 'string' ||
+    typeof o.discordClientId !== 'string' ||
+    !/^\d+$/.test(o.discordClientId) ||
     !fb ||
     typeof fb.apiKey !== 'string' ||
     typeof fb.projectId !== 'string' ||
     typeof fb.authDomain !== 'string'
   ) {
-    throw new Error('Invalid /config.json: expected { env, apiBase, firebase: { apiKey, projectId, authDomain } }');
+    throw new Error(BAD);
   }
-  return { env: o.env, apiBase: o.apiBase, firebase: fb };
+  return { env: o.env, apiBase: normalizeApiBase(o.apiBase), discordClientId: o.discordClientId, firebase: fb };
 }
 
 export async function loadRuntimeConfig(url = '/config.json'): Promise<RuntimeConfig> {

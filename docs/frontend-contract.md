@@ -120,7 +120,7 @@ temps réel au pixel près (agrégat) ; à valider que c'est acceptable pour le 
   `Cache-Control` (même origine donc pas de CORS, et les mappings Discord restent simples) ; (3) URLs signées courtes
   (`GET /tiles/{tx}/{ty}/url`, un aller-retour de plus). Recommandation : **(2)**.
 - **B. Hébergement du front.** `deploy-env.yml` passe `dist/` à Terraform (`app_artifact_dir`) et attend un output `app_url`.
-  Qui génère `/config.json` (`apiBase`, config Firebase) à côté de `dist/` ?
+  Qui génère `/config.json` (`env`, `apiBase`, `discordClientId` de l'environnement, config Firebase) à côté de `dist/` ?
 - **C. Granularité des tuiles Firestore** (`tile` = 256x256 ici) et fréquence de régénération des rasters (par événement avec debounce, ou
   périodique).
 - **D. Mini-map** : acceptable qu'elle soit approximative ?

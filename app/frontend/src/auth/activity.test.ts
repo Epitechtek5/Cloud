@@ -56,6 +56,43 @@ describe('ActivityAuth', () => {
     await expect(auth.restore()).rejects.toMatchObject({ kind: 'exchange_failed' });
   });
 
+  it('retries a failed ready() without loading the SDK or patching fetch a second time', async () => {
+    const loadSdk = vi.fn();
+    const { sdk, patch, mappings, fetchFn } = make();
+    (sdk.ready as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('transient'));
+    const auth = new ActivityAuth({
+      clientId: 'CID',
+      apiBase: 'https://gw.example',
+      mappings,
+      fetch: fetchFn,
+      loadSdk: async (id) => (loadSdk(id), { sdk, patchUrlMappings: patch }),
+    });
+    await expect(auth.restore()).rejects.toMatchObject({ kind: 'sdk' });
+    expect((await auth.restore())?.user.username).toBe('alice');
+    expect(loadSdk).toHaveBeenCalledTimes(1);
+    expect(patch).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives up with a clear message when Discord never answers', async () => {
+    vi.useFakeTimers();
+    const { sdk, mappings, fetchFn, patch } = make();
+    (sdk.ready as ReturnType<typeof vi.fn>).mockReturnValue(new Promise(() => {}));
+    const auth = new ActivityAuth({ clientId: 'CID', apiBase: 'https://gw.example', mappings, fetch: fetchFn, readyTimeoutMs: 5000, loadSdk: async () => ({ sdk, patchUrlMappings: patch }) });
+    const result = auth.restore().catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(await result).toMatchObject({ kind: 'sdk', message: expect.stringMatching(/Open this app from a voice channel/) });
+    vi.useRealTimers();
+  });
+
+  it('retries loading the SDK if the loader itself failed (nothing patched yet)', async () => {
+    const { sdk, patch, mappings, fetchFn } = make();
+    const loader = vi.fn().mockRejectedValueOnce(new Error('chunk load failed')).mockResolvedValue({ sdk, patchUrlMappings: patch });
+    const auth = new ActivityAuth({ clientId: 'CID', apiBase: 'https://gw.example', mappings, fetch: fetchFn, loadSdk: loader });
+    await expect(auth.restore()).rejects.toMatchObject({ kind: 'sdk', message: 'chunk load failed' });
+    await expect(auth.restore()).resolves.toBeTruthy();
+    expect(patch).toHaveBeenCalledTimes(1);
+  });
+
   it('wraps SDK failures', async () => {
     const { auth, sdk } = make();
     (sdk.ready as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('not in discord'));

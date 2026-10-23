@@ -1,6 +1,6 @@
+import { lateFetch } from '../net';
 import { activityMappings, FIREBASE_HOSTS, type PlatformKind } from '../platform/context';
 import type { RuntimeConfig } from '../runtimeConfig';
-import { config } from '../config';
 import { ActivityAuth } from './activity';
 import type { AuthProvider } from './types';
 import { WebAuth } from './web';
@@ -12,16 +12,15 @@ export async function createAuth(platform: PlatformKind, rc?: RuntimeConfig): Pr
     return new MockAuth();
   }
   if (!rc) throw new Error('Runtime config is required');
-  const clientId = config.discordClientId;
-  // The browser's fetch must be called as a method of window; bind it before handing it over.
-  const fetchFn = globalThis.fetch.bind(globalThis);
+  // The client id is per environment (one Discord application each), so it comes from /config.json.
+  const clientId = rc.discordClientId;
   if (platform === 'activity') {
-    return new ActivityAuth({ clientId, apiBase: rc.apiBase, mappings: activityMappings(rc.apiBase, FIREBASE_HOSTS), fetch: fetchFn });
+    return new ActivityAuth({ clientId, apiBase: rc.apiBase, mappings: activityMappings(rc.apiBase, FIREBASE_HOSTS), fetch: lateFetch });
   }
   return new WebAuth({
     clientId,
     apiBase: rc.apiBase,
-    fetch: fetchFn,
+    fetch: lateFetch,
     storage: sessionStorage,
     get href() {
       return location.href;
