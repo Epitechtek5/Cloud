@@ -1,0 +1,117 @@
+name: ci-terraform
+
+on:
+  pull_request:
+    paths:
+      - "infra/**"
+      - ".github/workflows/ci-terraform.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-terraform-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: terraform fmt
+        run: terraform fmt -check -recursive -diff infra
+
+      - name: terraform validate
+        run: |
+          # foundation and serverless must exist; access is optional.
+          for stack in foundation serverless access; do
+            if [ "$stack" = "access" ] && ! ls infra/access/*.tf >/dev/null 2>&1; then
+              echo "::notice::infra/access has no .tf files, skipping"
+              continue
+            fi
+            echo "::group::validate $stack"
+            terraform -chdir=infra/$stack init -backend=false -input=false
+            terraform -chdir=infra/$stack validate
+            echo "::endgroup::"
+          done
+
+      - uses: terraform-linters/setup-tflint@v4
+
+      - name: tflint
+        run: tflint --recursive --chdir=infra --format compact
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: checkov
+        run: |
+          pip install --quiet "checkov>=3,<4"
+          checkov --directory infra --framework terraform --quiet --compact
+
+  plan:
+    needs: validate
+    # Fork PRs get no OIDC token, so no plan there.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [dev, prd]
+        stack: [foundation, serverless]
+    env:
+      ENV: ${{ matrix.env }}
+      STACK: ${{ matrix.stack }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      # Read-only service account, not bound to a GitHub Environment so a PR
+      # plan never waits for the prd reviewers.
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_PLAN_SERVICE_ACCOUNT }}
+
+      - name: terraform init
+        run: |
+          terraform -chdir="infra/$STACK" init -input=false \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="prefix=$STACK/$ENV"
+
+      - name: terraform plan
+        run: |
+          terraform -chdir="infra/$STACK" plan -input=false -lock=false \
+            -var-file="$ENV.tfvars" -out="$RUNNER_TEMP/tfplan"
+          terraform -chdir="infra/$STACK" show -no-color "$RUNNER_TEMP/tfplan" > "$RUNNER_TEMP/plan.txt"
+
+      - if: always()
+        name: Comment the plan on the PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const file = `${process.env.RUNNER_TEMP}/plan.txt`;
+            const marker = `<!-- tfplan:${process.env.ENV}:${process.env.STACK} -->`;
+            let plan = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : 'The plan failed, see the job logs.';
+            if (plan.length > 60000) plan = plan.slice(0, 60000) + '\n... truncated, see the job logs';
+            const body = `${marker}\n### Terraform plan: \`${process.env.ENV}\` / \`${process.env.STACK}\`\n\n<details><summary>Show plan</summary>\n\n\`\`\`\n${plan}\n\`\`\`\n\n</details>`;
+            const { data: comments } = await github.rest.issues.listComments({
+              ...context.repo, issue_number: context.issue.number, per_page: 100,
+            });
+            const existing = comments.find((c) => c.body.startsWith(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
+            }
