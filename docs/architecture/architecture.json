@@ -1,0 +1,26 @@
+{
+  "edges": [],
+  "groups": {
+    "compute": [],
+    "data": [],
+    "network": [
+      {
+        "address": "google_compute_firewall.deny_all_ingress",
+        "label": "Firewall deny_all_ingress"
+      },
+      {
+        "address": "google_compute_network.main",
+        "label": "Network main"
+      },
+      {
+        "address": "google_compute_subnetwork.main",
+        "label": "Subnetwork main"
+      },
+      {
+        "address": "google_compute_subnetwork.runners",
+        "label": "Subnetwork runners"
+      }
+    ],
+    "observability": []
+  }
+}
