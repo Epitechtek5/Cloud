@@ -44,9 +44,13 @@ def call_model(payload: dict) -> str:
     )
     try:
         with urllib.request.urlopen(request, timeout=120) as response:
-            return json.load(response)["content"][0]["text"]
+            reply = json.load(response)
     except urllib.error.HTTPError as error:
         sys.exit(f"Anthropic API error {error.code} (model {body['model']}): {error.read().decode()}")
+    for block in reply.get("content", []):
+        if block.get("type") == "text":
+            return block["text"]
+    sys.exit(f"No text block in Anthropic response (stop_reason={reply.get('stop_reason')}): {json.dumps(reply)[:2000]}")
 
 
 def parse_json(text: str) -> dict:
