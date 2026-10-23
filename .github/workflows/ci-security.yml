@@ -19,6 +19,7 @@ env:
 jobs:
   gitleaks:
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -51,6 +52,7 @@ jobs:
 
   semgrep:
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 15
     # Non-blocking until the first findings are triaged.
     continue-on-error: true
     steps:
