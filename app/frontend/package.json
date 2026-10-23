@@ -1,0 +1,12 @@
+{
+  "name": "frontend",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Static frontend (placeholder base, no dependencies yet)",
+  "scripts": {
+    "lint": "node --check scripts/build.mjs",
+    "typecheck": "node -e \"console.log('no TypeScript yet')\"",
+    "test": "node --test",
+    "build": "node scripts/build.mjs"
+  }
+}
