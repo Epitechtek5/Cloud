@@ -22,7 +22,7 @@ GitHub  <--- long poll (HTTPS) ---  arc-systems: controller + listener
 | --- | --- | --- |
 | Network | `infra/foundation/main.tf` | `runners` subnet + secondary ranges for pods and services |
 | Cluster | `infra/foundation/gke.tf` | private GKE, Workload Identity, Calico network policy, Cloud NAT, bounded node pool |
-| Runners | `k8s/runners/` | Helm values for the controller and the scale set, egress NetworkPolicy, `install.sh` |
+| Runners | `k8s/runners/` | namespaces and egress NetworkPolicy (kustomize), Helm values for the controller and the scale set, `install.sh` (Helm and the GitHub App secret) |
 
 ## Install
 

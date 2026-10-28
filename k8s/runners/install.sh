@@ -21,20 +21,19 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 
 gcloud container clusters get-credentials "$CLUSTER" --region "$REGION"
 
+# Namespaces and network policy are plain manifests (kustomization.yaml).
+kubectl apply -k "$DIR"
+
 helm upgrade --install arc \
   oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller \
-  --version "$ARC_VERSION" --namespace "$CONTROLLER_NS" --create-namespace \
+  --version "$ARC_VERSION" --namespace "$CONTROLLER_NS" \
   --values "$DIR/controller-values.yaml"
-
-kubectl create namespace "$RUNNERS_NS" --dry-run=client -o yaml | kubectl apply -f -
 
 kubectl --namespace "$RUNNERS_NS" create secret generic arc-github-app \
   --from-literal=github_app_id="$GITHUB_APP_ID" \
   --from-literal=github_app_installation_id="$GITHUB_APP_INSTALLATION_ID" \
   --from-file=github_app_private_key="$GITHUB_APP_PRIVATE_KEY_FILE" \
   --dry-run=client -o yaml | kubectl apply -f -
-
-kubectl apply -f "$DIR/network-policy.yaml"
 
 helm upgrade --install "$SCALE_SET_NAME" \
   oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set \
