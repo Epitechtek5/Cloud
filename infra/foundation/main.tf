@@ -22,7 +22,7 @@ resource "google_compute_subnetwork" "main" {
   }
 }
 
-# Reserved for the future self-hosted CI runners, kept apart from the
+# Hosts the self-hosted CI runners (GKE nodes), kept apart from the
 # workload subnet so their firewall rules and routes stay independent.
 resource "google_compute_subnetwork" "runners" {
   name          = "${var.vpc_name}-runners"
@@ -31,6 +31,17 @@ resource "google_compute_subnetwork" "runners" {
   ip_cidr_range = cidrsubnet(var.cidr_block, 8, 2) # 10.0.0.0/16 -> 10.0.2.0/24
 
   private_ip_google_access = true
+
+  # Alias IP ranges of the GKE cluster that hosts the runners (see gke.tf).
+  secondary_ip_range {
+    range_name    = "runners-pods"
+    ip_cidr_range = cidrsubnet(var.cidr_block, 4, 2) # 10.0.0.0/16 -> 10.0.32.0/20
+  }
+
+  secondary_ip_range {
+    range_name    = "runners-services"
+    ip_cidr_range = cidrsubnet(var.cidr_block, 8, 3) # 10.0.0.0/16 -> 10.0.3.0/24
+  }
 
   log_config {
     aggregation_interval = "INTERVAL_10_MIN"

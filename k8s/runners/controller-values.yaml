@@ -1,0 +1,14 @@
+# gha-runner-scale-set-controller: watches the scale sets and creates the
+# ephemeral runner pods. Installed once per cluster.
+replicaCount: 1
+
+flags:
+  # The controller only manages the scale sets of its own namespace.
+  watchSingleNamespace: arc-runners
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 256Mi

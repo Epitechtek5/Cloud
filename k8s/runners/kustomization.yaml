@@ -1,0 +1,7 @@
+# Plain Kubernetes objects of the runners setup: `kubectl apply -k k8s/runners`.
+# The Helm releases and the GitHub App secret are handled by install.sh.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespaces.yaml
+  - network-policy.yaml

@@ -1,0 +1,32 @@
+# gha-runner-scale-set: one pool of ephemeral runners. The release name
+# (see install.sh) is the label to put in `runs-on` / CI_RUNNER.
+githubConfigUrl: https://github.com/Epitechtek5/Cloud
+
+# GitHub App credentials, in a secret created out of band by install.sh.
+# Never put the key in this file.
+githubConfigSecret: arc-github-app
+
+# One job per pod: the pod is deleted when the job ends, so no state or
+# credentials are shared between jobs. The fleet is bounded by maxRunners
+# and by the node pool ceiling (runners_max_nodes).
+minRunners: 0
+maxRunners: 6
+
+containerMode:
+  type: dind
+
+template:
+  spec:
+    containers:
+      - name: runner
+        image: ghcr.io/actions/actions-runner:latest
+        command: ["/home/runner/run.sh"]
+        resources:
+          requests:
+            cpu: "1"
+            memory: 2Gi
+          limits:
+            cpu: "2"
+            memory: 4Gi
+    nodeSelector:
+      purpose: ci-runners
