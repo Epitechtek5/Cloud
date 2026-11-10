@@ -16,9 +16,15 @@ jobs:
   # Cloud access, but no secret and no model call: only addresses, types and
   # names leave this job (attribute values may be sensitive and are dropped).
   extract:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    name: extract (${{ matrix.env }})
+    # prd holds the serverless stack; the runners cluster only exists in dev.
+    strategy:
+      fail-fast: true
+      matrix:
+        env: [prd, dev]
+    runs-on: ${{ vars.CI_RUNNER_TRUSTED || 'ubuntu-latest' }}
     timeout-minutes: 15
-    environment: prd
+    environment: ${{ matrix.env }}
     permissions:
       contents: read
       id-token: write
@@ -52,13 +58,13 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: architecture-input
+          name: architecture-input-${{ matrix.env }}
           path: architecture-input.json
 
   # The model call: has the API key, but no cloud credentials.
   generate:
     needs: extract
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RUNNER_TRUSTED || 'ubuntu-latest' }}
     timeout-minutes: 15
     environment: prd
     steps:
@@ -66,13 +72,35 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: architecture-input
+          pattern: architecture-input-*
+          path: inputs
+
+      # One diagram for both environments. They share the same Terraform code,
+      # hence the same addresses, but they are different VPCs in different
+      # projects: every address is prefixed with its environment so that
+      # nothing is merged.
+      - name: Merge the inputs
+        run: |
+          for env in prd dev; do
+            jq --arg e "$env" '
+              .resources |= map(.address = $e + ":" + .address)
+              | .references |= map(.address = $e + ":" + .address | .references |= map($e + ":" + .))
+            ' "inputs/architecture-input-$env/architecture-input.json" > "inputs/$env.json"
+          done
+          jq -s '{resources: (map(.resources) | add), references: (map(.references) | add)}' \
+            inputs/prd.json inputs/dev.json > architecture-input.json
 
       - name: Group and label the resources, then verify
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ARCH_MODEL: ${{ vars.ARCH_MODEL || 'claude-haiku-5-5' }}
         run: python3 -I .github/scripts/architecture/generate.py architecture-input.json architecture.json
+
+      # publish renders from the merged input, which only exists in this job.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: architecture-input
+          path: architecture-input.json
 
       - uses: actions/upload-artifact@v4
         with:
@@ -83,7 +111,7 @@ jobs:
   # data (JSON) rendered by our own script, never executed.
   publish:
     needs: generate
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RUNNER_TRUSTED || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
       - id: app-token

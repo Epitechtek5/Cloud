@@ -57,6 +57,8 @@ jobs:
     needs: validate
     # Fork PRs get no OIDC token, so no plan there.
     if: github.event.pull_request.head.repo.full_name == github.repository
+    # Runs the Terraform of the PR (providers, data sources), so it stays on the
+    # PR pool, not on the trusted one (see docs/ci/self-hosted-runners.md).
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
     permissions:

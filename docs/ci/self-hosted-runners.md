@@ -59,7 +59,12 @@ Two variables, two trust levels:
 | Variable | Used by | Default |
 | --- | --- | --- |
 | `CI_RUNNER` | CI jobs (lint, tests, security, PR checks), which run code from PRs | `ubuntu-latest` |
-| `CI_RUNNER_TRUSTED` | `deploy.yml` and `release.yml`, which hold GCP credentials | `ubuntu-latest` |
+| `CI_RUNNER_TRUSTED` | jobs holding GCP credentials or secrets: `deploy.yml`, `release.yml`, `architecture.yml` (prd/dev state, `ANTHROPIC_API_KEY`, release app key) | `ubuntu-latest` |
+
+The `plan` job of `ci-terraform.yml` stays on `CI_RUNNER` on purpose: it runs the Terraform of the PR (providers,
+`external` data sources), so putting it on the trusted pool would run PR code next to the deploy credentials. Fork
+PRs are excluded from it, and its service account is read-only (plan). This is an accepted residual risk: a PR
+from the repository itself can already change the workflows.
 
 Leave `CI_RUNNER_TRUSTED` unset until a second scale set (and node pool) reserved for trusted jobs exists: it
 must never point to the pool shared with PRs. `deploy-env.yml` and `destroy.yml` always run on `ubuntu-latest`:

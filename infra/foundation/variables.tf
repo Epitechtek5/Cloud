@@ -46,8 +46,8 @@ variable "runners_cluster_name" {
   description = "Name of the GKE cluster hosting the self-hosted CI runners (24 characters max: the node service account id adds -nodes)"
 
   validation {
-    condition     = length(var.runners_cluster_name) <= 24
-    error_message = "runners_cluster_name must be 24 characters or fewer (service account ids are limited to 30)."
+    condition     = !var.runners_enabled || (length(var.runners_cluster_name) > 0 && length(var.runners_cluster_name) <= 24)
+    error_message = "runners_cluster_name is required when runners_enabled and must be 24 characters or fewer (service account ids are limited to 30)."
   }
 }
 

@@ -8,9 +8,12 @@ githubConfigSecret: arc-github-app
 
 # One job per pod: the pod is deleted when the job ends, so no state or
 # credentials are shared between jobs. The fleet is bounded by maxRunners
-# and by the node pool ceiling (runners_max_nodes).
+# and by the node pool ceiling (runners_max_nodes). A runner pod requests 1.5 CPU
+# and 3Gi (runner + dind, see limit-range.yaml): an e2-standard-4 fits about 2,
+# so 3 nodes hold 4 runners with room for the system pods. Raise
+# runners_max_nodes before raising maxRunners.
 minRunners: 0
-maxRunners: 6
+maxRunners: 4
 
 # The chart injects the dind sidecar (docker builds and job containers) without
 # resources: the LimitRange in k8s/runners/limit-range.yaml gives it defaults.
