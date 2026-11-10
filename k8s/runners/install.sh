@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Installs (or upgrades) Actions Runner Controller and the runner scale set on
-# the runners GKE cluster. Run it from a machine allowed by
-# runners_authorized_networks.
+# the runners GKE cluster. Run it from a machine allowed by the cluster's
+# master authorized networks (see docs/ci/self-hosted-runners.md).
 #
-# Usage: ENV=dev GITHUB_APP_ID=... GITHUB_APP_INSTALLATION_ID=... \
+# Usage: ENV=dev ZONE=europe-west1-b PROJECT=<project_id> GITHUB_APP_ID=... GITHUB_APP_INSTALLATION_ID=... \
 #        GITHUB_APP_PRIVATE_KEY_FILE=app.pem ./install.sh
 set -euo pipefail
 
@@ -16,10 +16,11 @@ RUNNERS_NS=arc-runners
 CONTROLLER_NS=arc-systems
 SCALE_SET_NAME="${SCALE_SET_NAME:-huiledecloud-$ENV-runners}"
 CLUSTER="${CLUSTER:-huiledecloud-$ENV-runners}"
-REGION="${REGION:?REGION must be set (europe-west1 for dev, europe-west9 for prd)}"
+ZONE="${ZONE:?ZONE must be set (the runners_zone of the tfvars, e.g. europe-west1-b)}"
+PROJECT="${PROJECT:?PROJECT must be set (project_id of the tfvars)}"
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
-gcloud container clusters get-credentials "$CLUSTER" --region "$REGION"
+gcloud container clusters get-credentials "$CLUSTER" --zone "$ZONE" --project "$PROJECT"
 
 # Namespaces and network policy are plain manifests (kustomization.yaml).
 kubectl apply -k "$DIR"
@@ -33,7 +34,7 @@ kubectl --namespace "$RUNNERS_NS" create secret generic arc-github-app \
   --from-literal=github_app_id="$GITHUB_APP_ID" \
   --from-literal=github_app_installation_id="$GITHUB_APP_INSTALLATION_ID" \
   --from-file=github_app_private_key="$GITHUB_APP_PRIVATE_KEY_FILE" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --dry-run=client -o yaml | kubectl apply --server-side -f -
 
 helm upgrade --install "$SCALE_SET_NAME" \
   oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set \

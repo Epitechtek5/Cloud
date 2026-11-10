@@ -12,6 +12,8 @@ githubConfigSecret: arc-github-app
 minRunners: 0
 maxRunners: 6
 
+# The chart injects the dind sidecar (docker builds and job containers) without
+# resources: the LimitRange in k8s/runners/limit-range.yaml gives it defaults.
 containerMode:
   type: dind
 

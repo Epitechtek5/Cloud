@@ -5,3 +5,4 @@ kind: Kustomization
 resources:
   - namespaces.yaml
   - network-policy.yaml
+  - limit-range.yaml

@@ -33,12 +33,22 @@ variable "runners_zone" {
   type        = string
   default     = ""
   description = "Zone of the (zonal) runners cluster, e.g. europe-west1-b; required when runners_enabled"
+
+  validation {
+    condition     = !var.runners_enabled || startswith(var.runners_zone, "${var.region}-")
+    error_message = "runners_zone must be a zone of var.region (e.g. europe-west1-b for europe-west1)."
+  }
 }
 
 variable "runners_cluster_name" {
   type        = string
   default     = ""
-  description = "Name of the GKE cluster hosting the self-hosted CI runners"
+  description = "Name of the GKE cluster hosting the self-hosted CI runners (24 characters max: the node service account id adds -nodes)"
+
+  validation {
+    condition     = length(var.runners_cluster_name) <= 24
+    error_message = "runners_cluster_name must be 24 characters or fewer (service account ids are limited to 30)."
+  }
 }
 
 variable "runners_master_cidr" {
@@ -50,15 +60,6 @@ variable "runners_master_cidr" {
     condition     = can(cidrhost(var.runners_master_cidr, 0)) && endswith(var.runners_master_cidr, "/28")
     error_message = "runners_master_cidr must be a valid /28 CIDR, e.g. 172.16.0.0/28."
   }
-}
-
-variable "runners_authorized_networks" {
-  type = list(object({
-    cidr_block   = string
-    display_name = string
-  }))
-  default     = []
-  description = "Extra networks allowed to reach the cluster control plane (e.g. the admin workstation running Helm)"
 }
 
 variable "runners_machine_type" {

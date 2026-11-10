@@ -58,42 +58,37 @@ resource "google_container_cluster" "runners" {
     master_ipv4_cidr_block  = var.runners_master_cidr
   }
 
-  master_authorized_networks_config {
-    dynamic "cidr_blocks" {
-      for_each = var.runners_authorized_networks
-      content {
-        cidr_block   = cidr_blocks.value.cidr_block
-        display_name = cidr_blocks.value.display_name
-      }
-    }
-  }
+  # Authorized networks are managed outside Terraform (see the docs): the
+  # admin IP changes often and must not be committed, and a deploy must not
+  # reset the list. Until it is set the endpoint is only protected by IAM.
+  master_authorized_networks_config {}
 
   workload_identity_config {
     workload_pool = "${var.project_id}.svc.id.goog"
   }
 
   # Default for every node pool: pods reach the GKE metadata server only.
+  # The temporary default pool also uses the dedicated service account, never
+  # the Compute Engine default one (often Editor).
   node_config {
+    service_account = google_service_account.runners_nodes[0].email
+
     workload_metadata_config {
       mode = "GKE_METADATA"
     }
   }
 
-  network_policy {
-    enabled  = true
-    provider = "CALICO"
-  }
-
-  addons_config {
-    network_policy_config {
-      disabled = false
-    }
-  }
+  # Dataplane V2 (Cilium) enforces NetworkPolicy natively: no Calico addon.
+  datapath_provider = "ADVANCED_DATAPATH"
 
   master_auth {
     client_certificate_config {
       issue_client_certificate = false
     }
+  }
+
+  lifecycle {
+    ignore_changes = [master_authorized_networks_config]
   }
 
   logging_config {

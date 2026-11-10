@@ -19,7 +19,8 @@ permissions:
 jobs:
   deploy:
     name: deploy-${{ inputs.env }}
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    # Never on the runners: this Terraform creates and destroys their cluster.
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     # Required reviewers on prd are configured on the GitHub Environment.
     environment: ${{ inputs.env }}

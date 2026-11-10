@@ -21,7 +21,7 @@ GitHub  <--- long poll (HTTPS) ---  arc-systems: controller + listener
 | Layer | Where | What |
 | --- | --- | --- |
 | Network | `infra/foundation/main.tf` | `runners` subnet + secondary ranges for pods and services |
-| Cluster | `infra/foundation/gke.tf` | private zonal GKE, Workload Identity, Calico network policy, Cloud NAT, bounded node pool |
+| Cluster | `infra/foundation/gke.tf` | private zonal GKE, Workload Identity, Dataplane V2 network policy, Cloud NAT, bounded node pool |
 | Runners | `k8s/runners/` | namespaces and egress NetworkPolicy (kustomize), Helm values for the controller and the scale set, `install.sh` (Helm and the GitHub App secret) |
 
 ## Install
@@ -29,24 +29,42 @@ GitHub  <--- long poll (HTTPS) ---  arc-systems: controller + listener
 1. **Create a GitHub App** on the organization (Repository permissions: Actions read, Administration read and
    write, Metadata read), install it on this repository and download its private key.
 2. **Apply the Terraform** (`infra/foundation`) through the usual deploy workflow. The cluster only exists in dev
-   (`runners_enabled = true` in `dev.tfvars`): `CI_RUNNER` points to a single scale set, so a prd cluster would be
+   (`runners_enabled = true` in `dev.tfvars`): the runners are a single scale set, so a prd cluster would be
    billed for nothing. The deploy service account needs `container.admin`, `iam.serviceAccountAdmin`,
    `resourcemanager.projectIamAdmin`, `compute.networkAdmin`, and `iam.serviceAccountUser` on the node service
-   account, and `container.googleapis.com` must be enabled on the project. Pass the public IP of the machine that
-   will run Helm with `-var 'runners_authorized_networks=[{cidr_block="<ip>/32",display_name="admin"}]'` rather
-   than committing it.
-3. **Install ARC** from that machine (needs `gcloud`, `helm` and `kubectl`):
+   account, and `container.googleapis.com` must be enabled on the project.
+3. **Allow your machine to reach the control plane.** The authorized networks are managed outside Terraform
+   (`ignore_changes`), so a deploy never resets them and your IP is never committed:
 
    ```bash
-   ENV=dev REGION=europe-west1 \
+   gcloud container clusters update huiledecloud-dev-runners --zone europe-west1-b --project <project_id> \
+     --enable-master-authorized-networks --master-authorized-networks <your-ip>/32
+   ```
+4. **Install ARC** from that machine (needs `gcloud`, `helm` and `kubectl`):
+
+   ```bash
+   ENV=dev ZONE=europe-west1-b PROJECT=<project_id> \
    GITHUB_APP_ID=... GITHUB_APP_INSTALLATION_ID=... GITHUB_APP_PRIVATE_KEY_FILE=./app.pem \
    k8s/runners/install.sh
    ```
 
    The script is idempotent: run it again to upgrade. The private key only exists in the Kubernetes secret
-   `arc-github-app`; never commit it.
-4. **Switch the workflows**: set the `CI_RUNNER` repository variable to the scale set name
-   (`huiledecloud-dev-runners`). A scale set is selected by its name in `runs-on`.
+   `arc-github-app` (applied server-side, so no copy in an annotation); never commit it.
+5. **Switch the workflows**, after the fork PR setting of the next section: set the `CI_RUNNER` repository variable
+   to the scale set name (`huiledecloud-dev-runners`) for the untrusted jobs (CI on PRs). A scale set is selected
+   by its name in `runs-on`.
+
+Two variables, two trust levels:
+
+| Variable | Used by | Default |
+| --- | --- | --- |
+| `CI_RUNNER` | CI jobs (lint, tests, security, PR checks), which run code from PRs | `ubuntu-latest` |
+| `CI_RUNNER_TRUSTED` | `deploy.yml` and `release.yml`, which hold GCP credentials | `ubuntu-latest` |
+
+Leave `CI_RUNNER_TRUSTED` unset until a second scale set (and node pool) reserved for trusted jobs exists: it
+must never point to the pool shared with PRs. `deploy-env.yml` and `destroy.yml` always run on `ubuntu-latest`:
+they create and destroy this very cluster, so running them on its runners would kill the job in the middle of a
+`terraform destroy` and leave the state lock behind.
 
 The cluster is created by workflows that can run on GitHub-hosted runners (`CI_RUNNER` unset), so there is no
 bootstrap loop: keep the fallback until the runners are validated.
@@ -71,8 +89,8 @@ Still to do outside this change: the budget alert, the fork PR setting below, an
 A pull request from a fork runs workflows on our nodes, next to a privileged `dind` sidecar. First enable
 *Settings → Actions → General → Fork pull request workflows from outside collaborators → Require approval for
 all outside collaborators*. Forks cannot be disabled on a public repository, only gated by an approval.
-A container escape from a PR job could read the GCP tokens of a `deploy` job on the same node: before running
-`deploy` on these runners, add a second scale set (and node pool) reserved for trusted jobs.
+A container escape from a PR job could read the GCP tokens of a `deploy` job on the same node, which is why
+`CI_RUNNER_TRUSTED` is separate from `CI_RUNNER`.
 
 ## Operate
 
