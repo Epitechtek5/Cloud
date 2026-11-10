@@ -18,7 +18,8 @@ permissions:
 
 jobs:
   guard:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    # Never on the runners: this Terraform creates and destroys their cluster.
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Check the confirmation
@@ -33,7 +34,8 @@ jobs:
 
   destroy:
     needs: guard
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    # Never on the runners: this Terraform creates and destroys their cluster.
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     # Required reviewers for prd are configured on the GitHub Environment.
     environment: ${{ inputs.env }}
