@@ -39,6 +39,16 @@ jobs:
             echo "::endgroup::"
           done
 
+      - name: terraform test (modules)
+        run: |
+          for dir in infra/*/modules/*/; do
+            ls "$dir"tests/*.tftest.hcl >/dev/null 2>&1 || continue
+            echo "::group::test $dir"
+            terraform -chdir="$dir" init -backend=false -input=false
+            terraform -chdir="$dir" test
+            echo "::endgroup::"
+          done
+
       - uses: terraform-linters/setup-tflint@v4
 
       - name: tflint
