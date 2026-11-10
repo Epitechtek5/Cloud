@@ -75,20 +75,32 @@ jobs:
           pattern: architecture-input-*
           path: inputs
 
-      # One diagram for both environments: the union of the resources read in
-      # prd and in dev (same addresses are merged).
+      # One diagram for both environments. They share the same Terraform code,
+      # hence the same addresses, but they are different VPCs in different
+      # projects: every address is prefixed with its environment so that
+      # nothing is merged.
       - name: Merge the inputs
         run: |
-          jq -s '{
-            resources: (map(.resources) | add | unique_by(.address)),
-            references: (map(.references) | add | unique_by(.address))
-          }' inputs/*/architecture-input.json > architecture-input.json
+          for env in prd dev; do
+            jq --arg e "$env" '
+              .resources |= map(.address = $e + ":" + .address)
+              | .references |= map(.address = $e + ":" + .address | .references |= map($e + ":" + .))
+            ' "inputs/architecture-input-$env/architecture-input.json" > "inputs/$env.json"
+          done
+          jq -s '{resources: (map(.resources) | add), references: (map(.references) | add)}' \
+            inputs/prd.json inputs/dev.json > architecture-input.json
 
       - name: Group and label the resources, then verify
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ARCH_MODEL: ${{ vars.ARCH_MODEL || 'claude-haiku-5-5' }}
         run: python3 -I .github/scripts/architecture/generate.py architecture-input.json architecture.json
+
+      # publish renders from the merged input, which only exists in this job.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: architecture-input
+          path: architecture-input.json
 
       - uses: actions/upload-artifact@v4
         with:

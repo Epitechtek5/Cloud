@@ -19,12 +19,12 @@ resource "google_project_iam_member" "runners_nodes" {
 }
 
 resource "google_container_cluster" "runners" {
-  # Nodes must not start before their service account has its role.
-  depends_on = [google_project_iam_member.runners_nodes]
-
   #checkov:skip=CKV_GCP_66:Binary Authorization needs a signed-image pipeline; the runner images are public and pinned by tag
   #checkov:skip=CKV_GCP_65:No Google Groups for RBAC: the cluster has no human users, Kubernetes RBAC is only used by the admin running install.sh
   count = var.runners_enabled ? 1 : 0
+
+  # Nodes must not start before their service account has its role.
+  depends_on = [google_project_iam_member.runners_nodes]
 
   name = var.runners_cluster_name
   # Zonal on purpose: a regional cluster would run the node pool in 3 zones
@@ -97,7 +97,8 @@ resource "google_container_cluster" "runners" {
       master_authorized_networks_config,
       # Once the default pool is removed the API returns the config of that
       # first pool, which would otherwise show a diff (some fields are ForceNew)
-      # and replace the cluster at every deploy.
+      # and replace the cluster at every deploy. Side effect: any later change to
+      # the cluster's node_config block is ignored silently, change the node pool.
       node_config,
     ]
   }
@@ -112,9 +113,9 @@ resource "google_container_cluster" "runners" {
 }
 
 resource "google_container_node_pool" "runners" {
-  depends_on = [google_project_iam_member.runners_nodes]
-
   count = var.runners_enabled ? 1 : 0
+
+  depends_on = [google_project_iam_member.runners_nodes]
 
   name     = "runners"
   cluster  = google_container_cluster.runners[0].id
