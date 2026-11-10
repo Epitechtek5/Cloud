@@ -19,6 +19,9 @@ resource "google_project_iam_member" "runners_nodes" {
 }
 
 resource "google_container_cluster" "runners" {
+  # Nodes must not start before their service account has its role.
+  depends_on = [google_project_iam_member.runners_nodes]
+
   #checkov:skip=CKV_GCP_66:Binary Authorization needs a signed-image pipeline; the runner images are public and pinned by tag
   #checkov:skip=CKV_GCP_65:No Google Groups for RBAC: the cluster has no human users, Kubernetes RBAC is only used by the admin running install.sh
   count = var.runners_enabled ? 1 : 0
@@ -60,7 +63,9 @@ resource "google_container_cluster" "runners" {
 
   # Authorized networks are managed outside Terraform (see the docs): the
   # admin IP changes often and must not be committed, and a deploy must not
-  # reset the list. Until it is set the endpoint is only protected by IAM.
+  # reset the list. An empty block still ENABLES authorized networks (with no
+  # range): the public endpoint is closed to the Internet until an admin range
+  # is added. Do not remove the block, that would open the endpoint.
   master_authorized_networks_config {}
 
   workload_identity_config {
@@ -88,7 +93,13 @@ resource "google_container_cluster" "runners" {
   }
 
   lifecycle {
-    ignore_changes = [master_authorized_networks_config]
+    ignore_changes = [
+      master_authorized_networks_config,
+      # Once the default pool is removed the API returns the config of that
+      # first pool, which would otherwise show a diff (some fields are ForceNew)
+      # and replace the cluster at every deploy.
+      node_config,
+    ]
   }
 
   logging_config {
@@ -101,6 +112,8 @@ resource "google_container_cluster" "runners" {
 }
 
 resource "google_container_node_pool" "runners" {
+  depends_on = [google_project_iam_member.runners_nodes]
+
   count = var.runners_enabled ? 1 : 0
 
   name     = "runners"

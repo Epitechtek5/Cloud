@@ -59,7 +59,7 @@ Two variables, two trust levels:
 | Variable | Used by | Default |
 | --- | --- | --- |
 | `CI_RUNNER` | CI jobs (lint, tests, security, PR checks), which run code from PRs | `ubuntu-latest` |
-| `CI_RUNNER_TRUSTED` | `deploy.yml` and `release.yml`, which hold GCP credentials | `ubuntu-latest` |
+| `CI_RUNNER_TRUSTED` | jobs holding GCP credentials or secrets: `deploy.yml`, `release.yml`, `architecture.yml` (prd/dev state, `ANTHROPIC_API_KEY`, release app key) and the `plan` job of `ci-terraform.yml` (plan service accounts, state) | `ubuntu-latest` |
 
 Leave `CI_RUNNER_TRUSTED` unset until a second scale set (and node pool) reserved for trusted jobs exists: it
 must never point to the pool shared with PRs. `deploy-env.yml` and `destroy.yml` always run on `ubuntu-latest`:
