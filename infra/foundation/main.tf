@@ -35,7 +35,7 @@ resource "google_compute_subnetwork" "runners" {
   # Alias IP ranges of the GKE cluster that hosts the runners (see gke.tf).
   secondary_ip_range {
     range_name    = "runners-pods"
-    ip_cidr_range = cidrsubnet(var.cidr_block, 4, 2) # 10.0.0.0/16 -> 10.0.32.0/20
+    ip_cidr_range = cidrsubnet(var.cidr_block, 4, 2) # 10.0.0.0/16 -> 10.0.32.0/20 (takes the /24 indexes 32-47: keep them free)
   }
 
   secondary_ip_range {

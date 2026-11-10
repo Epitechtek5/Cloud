@@ -13,7 +13,7 @@ GitHub  <--- long poll (HTTPS) ---  arc-systems: controller + listener
                                             v
                               arc-runners: 1 ephemeral pod per job
                                             |
-                         GKE nodes (private, runners subnet, Spot)
+                         GKE nodes (zonal, private, runners subnet, Spot)
                                             |
                                   Cloud NAT --> internet
 ```
@@ -21,15 +21,20 @@ GitHub  <--- long poll (HTTPS) ---  arc-systems: controller + listener
 | Layer | Where | What |
 | --- | --- | --- |
 | Network | `infra/foundation/main.tf` | `runners` subnet + secondary ranges for pods and services |
-| Cluster | `infra/foundation/gke.tf` | private GKE, Workload Identity, Calico network policy, Cloud NAT, bounded node pool |
+| Cluster | `infra/foundation/gke.tf` | private zonal GKE, Workload Identity, Calico network policy, Cloud NAT, bounded node pool |
 | Runners | `k8s/runners/` | namespaces and egress NetworkPolicy (kustomize), Helm values for the controller and the scale set, `install.sh` (Helm and the GitHub App secret) |
 
 ## Install
 
 1. **Create a GitHub App** on the organization (Repository permissions: Actions read, Administration read and
    write, Metadata read), install it on this repository and download its private key.
-2. **Apply the Terraform** (`infra/foundation`) through the usual deploy workflow. Set
-   `runners_authorized_networks` in the tfvars with the public IP of the machine that will run Helm.
+2. **Apply the Terraform** (`infra/foundation`) through the usual deploy workflow. The cluster only exists in dev
+   (`runners_enabled = true` in `dev.tfvars`): `CI_RUNNER` points to a single scale set, so a prd cluster would be
+   billed for nothing. The deploy service account needs `container.admin`, `iam.serviceAccountAdmin`,
+   `resourcemanager.projectIamAdmin`, `compute.networkAdmin`, and `iam.serviceAccountUser` on the node service
+   account, and `container.googleapis.com` must be enabled on the project. Pass the public IP of the machine that
+   will run Helm with `-var 'runners_authorized_networks=[{cidr_block="<ip>/32",display_name="admin"}]'` rather
+   than committing it.
 3. **Install ARC** from that machine (needs `gcloud`, `helm` and `kubectl`):
 
    ```bash
@@ -52,14 +57,22 @@ bootstrap loop: keep the fallback until the runners are validated.
 | --- | --- |
 | Ephemeral runners | ARC scale sets: one pod per job, deleted at the end |
 | Bounded fleet | `maxRunners` (Helm values) and `runners_max_nodes` (node pool ceiling) |
-| Idle TTL | `minRunners: 0` and the node pool autoscaler |
-| Least-privilege service account | dedicated node service account with logging/monitoring/image-pull roles only |
+| Idle TTL | `minRunners: 0` (no runner pod when idle); the node pool keeps `runners_min_nodes` (1) node for the ARC controller |
+| Least-privilege service account | dedicated node service account with `container.defaultNodeServiceAccount` only |
 | Dedicated subnet | nodes in the `runners` subnet, no public IP |
 | No access to the node identity | `GKE_METADATA` (Workload Identity): pods cannot use the node service account |
-| Contained egress | NetworkPolicy: internet only, no private ranges |
+| Contained network | NetworkPolicy: ingress denied, egress to the internet only (no private ranges) |
 
-Still to do outside this change: the budget alert, "Require approval for all outside collaborators", and
-removing the `|| 'ubuntu-latest'` fallback once the runners are live.
+Still to do outside this change: the budget alert, the fork PR setting below, and removing the
+`|| 'ubuntu-latest'` fallback once the runners are live.
+
+## Before setting `CI_RUNNER` (public repository)
+
+A pull request from a fork runs workflows on our nodes, next to a privileged `dind` sidecar. First enable
+*Settings → Actions → General → Fork pull request workflows from outside collaborators → Require approval for
+all outside collaborators*. Forks cannot be disabled on a public repository, only gated by an approval.
+A container escape from a PR job could read the GCP tokens of a `deploy` job on the same node: before running
+`deploy` on these runners, add a second scale set (and node pool) reserved for trusted jobs.
 
 ## Operate
 
@@ -70,9 +83,10 @@ helm -n arc-runners list                 # installed scale set
 ```
 
 - **Scale**: edit `maxRunners` in `k8s/runners/runner-set-values.yaml` and rerun `install.sh`.
-- **Upgrade ARC**: bump `ARC_VERSION` in `install.sh` and rerun it.
-- **Spot preemption**: a job running on a preempted node fails and must be re-run. Set `runners_spot = false`
-  if that becomes a problem.
+- **Upgrade ARC or the runner**: bump `ARC_VERSION` in `install.sh` and the image tag in `runner-set-values.yaml`, then rerun `install.sh`.
+- **Spot preemption**: a job running on a preempted node fails and must be re-run. The ARC controller and
+  listener run on the same Spot node: when it is preempted, queued jobs wait until they are rescheduled. Set
+  `runners_spot = false` if that becomes a problem.
 - **Docker in the runner**: jobs get a `dind` sidecar (needed for container actions), which runs privileged
-  inside the pod. This is acceptable because pods are ephemeral and isolated by the network policy, but keep
-  fork PRs disabled.
+  inside the pod. This is acceptable because pods are ephemeral and isolated by the network policy, as long as
+  fork PRs require approval (see above).

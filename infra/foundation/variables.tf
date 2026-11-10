@@ -23,13 +23,27 @@ variable "cidr_block" {
   }
 }
 
+variable "runners_enabled" {
+  type        = bool
+  default     = false
+  description = "Create the GKE cluster of the self-hosted runners. Only one cluster serves CI (CI_RUNNER points to a single scale set), so only dev enables it"
+}
+
+variable "runners_zone" {
+  type        = string
+  default     = ""
+  description = "Zone of the (zonal) runners cluster, e.g. europe-west1-b; required when runners_enabled"
+}
+
 variable "runners_cluster_name" {
   type        = string
+  default     = ""
   description = "Name of the GKE cluster hosting the self-hosted CI runners"
 }
 
 variable "runners_master_cidr" {
   type        = string
+  default     = "172.16.0.0/28"
   description = "/28 used by GKE for the private control plane; must not overlap any subnet"
 
   validation {
@@ -56,13 +70,13 @@ variable "runners_machine_type" {
 variable "runners_min_nodes" {
   type        = number
   default     = 1
-  description = "Minimum number of runner nodes per zone (the ARC controller needs one)"
+  description = "Minimum number of runner nodes (the ARC controller needs one)"
 }
 
 variable "runners_max_nodes" {
   type        = number
   default     = 3
-  description = "Maximum number of runner nodes per zone, the hard ceiling of the fleet"
+  description = "Maximum number of runner nodes, the hard ceiling of the fleet"
 }
 
 variable "runners_spot" {

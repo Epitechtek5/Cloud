@@ -24,11 +24,11 @@ output "runners_subnet_cidr" {
 }
 
 output "runners_cluster_name" {
-  value       = google_container_cluster.runners.name
+  value       = one(google_container_cluster.runners[*].name)
   description = "Name of the GKE cluster hosting the CI runners"
 }
 
 output "runners_cluster_location" {
-  value       = google_container_cluster.runners.location
+  value       = one(google_container_cluster.runners[*].location)
   description = "Location of the GKE cluster hosting the CI runners"
 }

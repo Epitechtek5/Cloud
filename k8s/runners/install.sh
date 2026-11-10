@@ -11,7 +11,7 @@ ENV="${ENV:?ENV must be dev or prd}"
 : "${GITHUB_APP_ID:?}" "${GITHUB_APP_INSTALLATION_ID:?}" "${GITHUB_APP_PRIVATE_KEY_FILE:?}"
 
 # Pin the chart version: an upgrade must be a deliberate change.
-ARC_VERSION="${ARC_VERSION:-0.10.1}"
+ARC_VERSION="${ARC_VERSION:-0.15.1}"
 RUNNERS_NS=arc-runners
 CONTROLLER_NS=arc-systems
 SCALE_SET_NAME="${SCALE_SET_NAME:-huiledecloud-$ENV-runners}"

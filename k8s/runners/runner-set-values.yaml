@@ -19,7 +19,8 @@ template:
   spec:
     containers:
       - name: runner
-        image: ghcr.io/actions/actions-runner:latest
+        # Pinned tag: bump it on purpose (the runner auto-updates are refused by ARC).
+        image: ghcr.io/actions/actions-runner:2.338.2
         command: ["/home/runner/run.sh"]
         resources:
           requests:

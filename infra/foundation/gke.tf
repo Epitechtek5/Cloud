@@ -3,28 +3,30 @@
 # live in the dedicated runners subnet and have no public IP.
 
 resource "google_service_account" "runners_nodes" {
+  count = var.runners_enabled ? 1 : 0
+
   account_id   = "${var.runners_cluster_name}-nodes"
   display_name = "GKE nodes of ${var.runners_cluster_name}"
 }
 
-# Only what a GKE node needs to log, export metrics and pull images.
+# Predefined role with only what a GKE node needs (logs and metrics).
 resource "google_project_iam_member" "runners_nodes" {
-  for_each = toset([
-    "roles/logging.logWriter",
-    "roles/monitoring.metricWriter",
-    "roles/monitoring.viewer",
-    "roles/stackdriver.resourceMetadata.writer",
-    "roles/artifactregistry.reader",
-  ])
+  count = var.runners_enabled ? 1 : 0
 
   project = var.project_id
-  role    = each.value
-  member  = "serviceAccount:${google_service_account.runners_nodes.email}"
+  role    = "roles/container.defaultNodeServiceAccount"
+  member  = "serviceAccount:${google_service_account.runners_nodes[0].email}"
 }
 
 resource "google_container_cluster" "runners" {
-  name     = var.runners_cluster_name
-  location = var.region
+  #checkov:skip=CKV_GCP_66:Binary Authorization needs a signed-image pipeline; the runner images are public and pinned by tag
+  #checkov:skip=CKV_GCP_65:No Google Groups for RBAC: the cluster has no human users, Kubernetes RBAC is only used by the admin running install.sh
+  count = var.runners_enabled ? 1 : 0
+
+  name = var.runners_cluster_name
+  # Zonal on purpose: a regional cluster would run the node pool in 3 zones
+  # (min/max nodes are per zone) and pay the GKE management fee.
+  location = var.runners_zone
 
   network    = google_compute_network.main.id
   subnetwork = google_compute_subnetwork.runners.id
@@ -34,7 +36,10 @@ resource "google_container_cluster" "runners" {
   initial_node_count       = 1
 
   deletion_protection = false
-  resource_labels     = { purpose = "ci-runners" }
+
+  # Traffic between pods of the same node goes through the VPC (flow logs).
+  enable_intranode_visibility = true
+  resource_labels             = { purpose = "ci-runners" }
 
   release_channel {
     channel = "REGULAR"
@@ -54,11 +59,6 @@ resource "google_container_cluster" "runners" {
   }
 
   master_authorized_networks_config {
-    cidr_blocks {
-      cidr_block   = google_compute_subnetwork.runners.ip_cidr_range
-      display_name = "runners-subnet"
-    }
-
     dynamic "cidr_blocks" {
       for_each = var.runners_authorized_networks
       content {
@@ -70,6 +70,13 @@ resource "google_container_cluster" "runners" {
 
   workload_identity_config {
     workload_pool = "${var.project_id}.svc.id.goog"
+  }
+
+  # Default for every node pool: pods reach the GKE metadata server only.
+  node_config {
+    workload_metadata_config {
+      mode = "GKE_METADATA"
+    }
   }
 
   network_policy {
@@ -99,9 +106,11 @@ resource "google_container_cluster" "runners" {
 }
 
 resource "google_container_node_pool" "runners" {
+  count = var.runners_enabled ? 1 : 0
+
   name     = "runners"
-  cluster  = google_container_cluster.runners.id
-  location = var.region
+  cluster  = google_container_cluster.runners[0].id
+  location = var.runners_zone
 
   # Hard ceiling on the fleet: the autoscaler can never create more nodes than
   # this, whatever the number of queued jobs.
@@ -118,7 +127,7 @@ resource "google_container_node_pool" "runners" {
   node_config {
     machine_type    = var.runners_machine_type
     spot            = var.runners_spot
-    service_account = google_service_account.runners_nodes.email
+    service_account = google_service_account.runners_nodes[0].email
     oauth_scopes    = ["https://www.googleapis.com/auth/cloud-platform"]
     labels          = { purpose = "ci-runners" }
 
@@ -137,14 +146,18 @@ resource "google_container_node_pool" "runners" {
 # Private nodes have no public IP: Cloud NAT gives them outbound access to
 # github.com (runner registration, job logs) for the runners subnet only.
 resource "google_compute_router" "runners" {
+  count = var.runners_enabled ? 1 : 0
+
   name    = "${var.runners_cluster_name}-router"
   network = google_compute_network.main.id
   region  = var.region
 }
 
 resource "google_compute_router_nat" "runners" {
+  count = var.runners_enabled ? 1 : 0
+
   name   = "${var.runners_cluster_name}-nat"
-  router = google_compute_router.runners.name
+  router = google_compute_router.runners[0].name
   region = var.region
 
   nat_ip_allocate_option             = "AUTO_ONLY"
