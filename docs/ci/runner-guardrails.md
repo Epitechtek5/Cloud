@@ -21,7 +21,8 @@ plan, 30 min for deploy and destroy. Raise a value in the workflow when a job le
 
 ## To set up with the runners
 
-These cannot be enforced from the workflows and must be part of the runner infrastructure:
+These cannot be enforced from the workflows and must be part of the runner infrastructure
+(most of them are implemented by [self-hosted-runners.md](self-hosted-runners.md)):
 
 - **Ephemeral runners**: one job per VM, destroyed afterwards. No state or credentials shared between jobs.
 - **Bounded fleet**: a maximum number of instances and an idle TTL on the autoscaler, so a burst of PRs cannot

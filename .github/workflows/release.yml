@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   release:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RUNNER_TRUSTED || 'ubuntu-latest' }}
     timeout-minutes: 15
     steps:
       # A tag pushed with the default GITHUB_TOKEN does not trigger deploy.yml,

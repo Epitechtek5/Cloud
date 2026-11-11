@@ -29,4 +29,4 @@ library: nothing returned by the model is ever run.
   Pull requests: write to open the PR).
 - Check the model identifier in the API documentation if it changes (the repository variable `ARCH_MODEL` overrides it).
 
-To try it without a release, run the `architecture` workflow manually (Actions, `architecture`, Run workflow).
+To try it without a release, run the `architecture` workflow manually (Actions, `architecture`, Run workflow) **from `dev` or from a `v*` tag**: the `dev` environment, read by `extract (dev)`, refuses other branches such as `main`.
