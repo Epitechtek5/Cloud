@@ -10,12 +10,13 @@ app/functions/
   package.json        one package, one artifact (functions.zip) for every function
   src/index.js        exports every entry point; Terraform picks one per function (entry_point)
   src/<function>/     code of one function (proxy or worker), thin, built on src/lib
+                      e.g. src/discord: Discord interactions proxy (docs/discord-bot.md)
   src/lib/            shared runtime library (below)
   test/               node:test unit tests (test/lib for the library)
 ```
 
 - **Build and test**: `ci-functions.yml` runs `npm run lint`, `npm run test:coverage` (fails under 90 % lines,
-  80 % branches, 90 % functions of `src/lib`), `npm run build` and zips `dist/`.
+  80 % branches, 90 % functions of `src`), `npm run build` and zips `dist/`.
 - **Packaging**: `deploy.yml` builds the same `functions.zip` once and passes it to Terraform
   (`app_artifact_dir`); each function is one `modules/function` instance in `infra/serverless/functions.tf`,
   with its own `entry_point` and its own service account (see `infra/serverless/README.md`).

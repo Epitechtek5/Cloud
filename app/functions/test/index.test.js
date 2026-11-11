@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { hello } from "../src/index.js";
+import { discordProxy, hello } from "../src/index.js";
 
 test("hello answers 200", () => {
   let status;
@@ -17,4 +17,8 @@ test("hello answers 200", () => {
   hello({}, res);
   assert.equal(status, 200);
   assert.equal(body, "ok");
+});
+
+test("exports the Discord proxy entry point", () => {
+  assert.equal(typeof discordProxy, "function");
 });
