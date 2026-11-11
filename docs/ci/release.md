@@ -4,6 +4,22 @@
 (or `perf:`) a patch, and `!` or a `BREAKING CHANGE:` footer a major one. It creates the `vX.Y.Z` tag and the
 GitHub Release. The tag then triggers `deploy.yml`. There is no `git` plugin, so nothing is committed back to `main`.
 
+## Deployments
+
+`deploy.yml` builds the app once per run and deploys it to a single environment:
+
+| Trigger | Environment | Code deployed |
+| --- | --- | --- |
+| push to `dev` (merged PR) | `dev` | the `dev` branch |
+| `vX.Y.Z` tag (release from `main`) | `prd`, after approval by a required reviewer | the tagged `main` commit |
+
+A tag does not redeploy `dev`: it would roll it back to `main`, which is behind `dev`. Pushes to `dev` that only
+change `docs/**` or Markdown files do not trigger a deployment. Each environment has its own `concurrency` group in
+`deploy-env.yml`, so two Terraform applies never run at the same time on the same state.
+
+The `dev` and `prd` GitHub Environments must allow these refs in their deployment branch rules: the `dev` branch
+for `dev`, `v*` tags for `prd`.
+
 `pr-title.yml` checks PR titles against Conventional Commits, because a squash merge turns the title into the
 commit message that semantic-release reads.
 
