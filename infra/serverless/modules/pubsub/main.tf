@@ -16,6 +16,7 @@ locals {
 }
 
 resource "google_pubsub_topic" "main" {
+  #checkov:skip=CKV_GCP_83:Google-managed encryption is enough for pixel and command events (no personal data beyond Discord ids); CMEK would add a KMS key ring to manage per environment
   for_each = local.channels
 
   lifecycle {
@@ -32,6 +33,7 @@ resource "google_pubsub_topic" "main" {
 }
 
 resource "google_pubsub_topic" "dlq" {
+  #checkov:skip=CKV_GCP_83:Same data as the source topic, Google-managed encryption (see google_pubsub_topic.main)
   for_each = local.channels
 
   project                    = var.project_id
