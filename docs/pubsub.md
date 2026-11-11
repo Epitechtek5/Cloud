@@ -70,7 +70,9 @@ Payload: JSON (UTF-8). Attributes (strings) on every message:
 | `event_type` | e.g. `pixel.draw`, `discord.command`, `pixel.processed`, `snapshot.requested` |
 | `source` | name of the publishing function |
 
-The JSON body of each event type is defined with the shared runtime library (event schemas).
+The JSON body of each event type is defined and validated by the shared runtime library
+(`app/functions/src/lib/events.js`, see [functions.md](functions.md)): the publisher refuses an invalid event and
+the worker refuses (and logs) an invalid one.
 
 ## Tests
 
