@@ -48,3 +48,6 @@ dist/
 coverage/
 .vite/
 *.local
+
+# Fallback zip of the serverless stack (built at plan time)
+infra/serverless/.build/
