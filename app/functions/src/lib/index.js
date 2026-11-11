@@ -1,6 +1,7 @@
 // Shared runtime library of the functions (C05 §6, C08 §6).
 export * from "./correlation.js";
 export * from "./events.js";
+export * from "./colors.js";
 export { createLogger } from "./logger.js";
 export { httpContext, messageContext } from "./context.js";
 export { createPublisher } from "./publisher.js";

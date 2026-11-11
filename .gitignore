@@ -29,6 +29,7 @@ terraform.rc
 !**/audit-exceptions.json
 !docs/architecture/*.json
 !infra/serverless/tests/firestore-rules/firebase.json
+!app/functions/commands/*.json
 .env
 .env.*
 *.pem
