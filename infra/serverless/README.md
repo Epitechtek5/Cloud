@@ -3,6 +3,9 @@
 Serverless application stack (API Gateway, functions, queues, storage), applied after `infra/foundation` by
 `deploy-env.yml` (state prefix `serverless`) and destroyed before it by `destroy.yml`.
 
+The PR plan account is read-only on the state, so `serverless/default.tfstate` must exist before the first PR plan
+of each environment: `scripts/bootstrap-state-bucket.sh` creates it (already done on dev and prd).
+
 | File | Content |
 |---|---|
 | `apis.tf` | Required Google APIs (never disabled on destroy) |
