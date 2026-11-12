@@ -32,3 +32,8 @@ output "runners_cluster_location" {
   value       = one(google_container_cluster.runners[*].location)
   description = "Location of the GKE cluster hosting the CI runners"
 }
+
+output "runners_scale_set_name" {
+  value       = one(helm_release.arc_runner_set[*].name)
+  description = "Runner scale set name: the label to put in runs-on / the CI_RUNNER repository variable"
+}

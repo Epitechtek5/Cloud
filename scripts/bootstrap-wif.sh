@@ -17,6 +17,33 @@ POOL="github"
 PROVIDER="github"
 DEPLOY_SA="gha-deploy"
 PLAN_SA="gha-plan"
+DEPLOY_K8S_ROLE="ghaDeployK8sRbac"
+
+# Kubernetes RBAC objects the deploy account may manage in the GKE clusters
+# (the ARC Helm charts create ClusterRoles, Roles and their bindings). On GKE
+# roles/editor stops short of these, and roles/container.admin would also
+# bring impersonation, token creation and CSR approval: only these are added.
+# bind/escalate are required to create a binding to a role with more rights
+# than the caller holds through roles/editor. The two escalate permissions are
+# at the TESTING support level for custom roles (gcloud warns, --quiet accepts).
+DEPLOY_K8S_PERMISSIONS=(
+  container.clusterRoles.bind
+  container.clusterRoles.create
+  container.clusterRoles.delete
+  container.clusterRoles.escalate
+  container.clusterRoles.update
+  container.clusterRoleBindings.create
+  container.clusterRoleBindings.delete
+  container.clusterRoleBindings.update
+  container.roles.bind
+  container.roles.create
+  container.roles.delete
+  container.roles.escalate
+  container.roles.update
+  container.roleBindings.create
+  container.roleBindings.delete
+  container.roleBindings.update
+)
 
 case "${ENV_NAME}" in dev | prd) ;; *) echo "environment must be dev or prd" >&2; exit 1 ;; esac
 
@@ -68,14 +95,39 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
 gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --member "serviceAccount:${PLAN_EMAIL}" --role roles/viewer --condition=None >/dev/null
 gcloud storage buckets add-iam-policy-binding "gs://${BUCKET}" --project "${PROJECT_ID}" \
-  --member "serviceAccount:${DEPLOY_EMAIL}" --role roles/storage.objectAdmin >/dev/null
+  --member "serviceAccount:${DEPLOY_EMAIL}" --role roles/storage.objectAdmin --condition=None >/dev/null
+# --condition=None is required on re-runs: the bucket policy already holds the
+# conditional plan-lock-files binding below.
 gcloud storage buckets add-iam-policy-binding "gs://${BUCKET}" --project "${PROJECT_ID}" \
-  --member "serviceAccount:${PLAN_EMAIL}" --role roles/storage.objectViewer >/dev/null
+  --member "serviceAccount:${PLAN_EMAIL}" --role roles/storage.objectViewer --condition=None >/dev/null
 # `terraform init` writes a .tflock object even for a plan: allow writes on
 # those lock files only, never on the state itself.
 gcloud storage buckets add-iam-policy-binding "gs://${BUCKET}" --project "${PROJECT_ID}" \
   --member "serviceAccount:${PLAN_EMAIL}" --role roles/storage.objectUser \
   --condition "title=plan-lock-files,expression=resource.name.endsWith('.tflock')" >/dev/null
+
+echo ">> Kubernetes RBAC the deploy account may manage"
+# Custom role with DEPLOY_K8S_PERMISSIONS only (see above). The PR plan
+# account needs nothing more than roles/viewer: Helm records its releases in
+# ConfigMaps, and it never reads the Kubernetes Secrets.
+k8s_permissions="$(IFS=,; echo "${DEPLOY_K8S_PERMISSIONS[*]}")"
+k8s_role_state="$(gcloud iam roles describe "${DEPLOY_K8S_ROLE}" --project "${PROJECT_ID}" \
+  --format 'value(deleted)' 2>/dev/null || echo missing)"
+if [ "${k8s_role_state}" = "missing" ]; then
+  gcloud iam roles create "${DEPLOY_K8S_ROLE}" --project "${PROJECT_ID}" \
+    --title "GitHub deploy: Kubernetes RBAC" \
+    --description "Roles and bindings created by the Helm charts of the GKE clusters (scripts/bootstrap-wif.sh)" \
+    --permissions "${k8s_permissions}" --stage GA --quiet >/dev/null
+else
+  # A deleted custom role keeps its id for 7 days: restore it instead.
+  [ "${k8s_role_state}" = "True" ] &&
+    gcloud iam roles undelete "${DEPLOY_K8S_ROLE}" --project "${PROJECT_ID}" >/dev/null
+  gcloud iam roles update "${DEPLOY_K8S_ROLE}" --project "${PROJECT_ID}" \
+    --permissions "${k8s_permissions}" --quiet >/dev/null
+fi
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+  --member "serviceAccount:${DEPLOY_EMAIL}" \
+  --role "projects/${PROJECT_ID}/roles/${DEPLOY_K8S_ROLE}" --condition=None >/dev/null
 
 SUFFIX="$(echo "${ENV_NAME}" | tr '[:lower:]' '[:upper:]')"
 echo ">> GitHub variables for ${ENV_NAME}"

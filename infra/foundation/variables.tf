@@ -85,3 +85,31 @@ variable "runners_spot" {
   default     = true
   description = "Use Spot VMs for the runner nodes (cheaper, may be preempted: acceptable for ephemeral jobs)"
 }
+
+variable "runners_arc_version" {
+  type        = string
+  default     = "0.15.1"
+  description = "Version of the Actions Runner Controller charts (controller and scale set must match). Bump it on purpose, after reading the ARC release notes"
+
+  validation {
+    condition     = can(regex("^[0-9]+[.][0-9]+[.][0-9]+$", var.runners_arc_version))
+    error_message = "runners_arc_version must be an exact chart version, e.g. 0.15.1."
+  }
+}
+
+variable "runners_min_runners" {
+  type        = number
+  default     = 0
+  description = "Runner pods kept idle. 0: no runner pod when no job is queued"
+}
+
+variable "runners_max_runners" {
+  type        = number
+  default     = 4
+  description = "Maximum number of concurrent runner pods. A runner (runner + dind) requests about 1.5 CPU and 3Gi: raise runners_max_nodes before raising this"
+
+  validation {
+    condition     = var.runners_max_runners >= var.runners_min_runners && var.runners_max_runners > 0
+    error_message = "runners_max_runners must be positive and at least runners_min_runners."
+  }
+}
