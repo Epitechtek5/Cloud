@@ -48,17 +48,6 @@ variable "api_base_url" {
   }
 }
 
-variable "discord_client_id" {
-  type        = string
-  default     = ""
-  description = "Public id of the Discord application of this environment (one application per environment)"
-
-  validation {
-    condition     = can(regex("^[0-9]*$", var.discord_client_id))
-    error_message = "discord_client_id is the numeric id of the Discord application."
-  }
-}
-
 variable "firebase_api_key" {
   type        = string
   default     = ""

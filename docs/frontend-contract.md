@@ -77,8 +77,10 @@ Pour chaque tuile visible, le front :
 Le premier snapshot contient seulement ce qui est plus récent que le raster, puis chaque changement arrive en delta : **pas de
 polling, aucun pixel perdu entre le raster et l'abonnement**. L'effacement (`/admin clear`) est un delta avec `c = -1`.
 
-> Conséquence : le front doit s'abonner **après** avoir chargé le raster (le mock actuel s'abonne avant). Le changement est
-> prévu dans la PR de l'adaptateur (`subscribeTile(tx, ty, cb, { since })`).
+> Conséquence : le front s'abonne **après** avoir chargé le raster. C'est fait dans le front et le mock :
+> `TileSource.loadTile` renvoie `{ rgba, version }` (`version` = `X-Tile-Version`, `0` pour une tuile vide) et
+> `RealtimeChannel.subscribeTile(tx, ty, cb, { since: version })` ne livre que les pixels `t > since`, puis les changements en direct.
+> L'adaptateur GCP devra respecter cette sémantique (`where("t", ">", since)`).
 
 ### État global : `session/state`
 
