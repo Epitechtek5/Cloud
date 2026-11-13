@@ -85,10 +85,10 @@ change it, so **the real authorization stays in the worker**. Colours are parsed
 them (bulk `PUT`) when they differ: re-running it is idempotent and reports `already up to date`. Guild
 commands by default, so they show up at once in the dev and prd guilds.
 
-**Pipeline**: `deploy-env.yml` runs it after the Terraform apply of each environment (so on every release, dev
-then prd). The bot token is read from Secret Manager (`discord-bot-token`, module
-`infra/serverless/modules/discord_bot`, readable only by the deploy service account) with the environment's
-OIDC identity: it is never a GitHub secret, and it is masked in the logs. The step is skipped until these
+**Pipeline**: `deploy-env.yml` runs it after the Terraform apply of each environment (dev on every push to
+`dev`, prd on release). The bot token is read from Secret Manager (`discord-bot-token`, readable only by the
+deploy service account through `google_secret_manager_secret_iam_member.deploy_reads_bot_token` in
+`infra/serverless/secrets.tf`) with the environment's OIDC identity: it is never a GitHub secret, and it is masked in the logs. The step is skipped until these
 **GitHub Environment variables** are set on `dev` and `prd`:
 
 | Variable | Value |

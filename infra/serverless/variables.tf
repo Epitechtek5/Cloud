@@ -65,6 +65,12 @@ variable "gateway_invokers" {
   }
 }
 
+variable "deploy_service_account" {
+  type        = string
+  default     = null
+  description = "Email of the deploy service account of the pipeline (reads the bot token to register the slash commands). Defaults to gha-deploy@<project_id>, created by scripts/bootstrap-wif.sh"
+}
+
 variable "discord_proxy_enabled" {
   type        = bool
   default     = false
