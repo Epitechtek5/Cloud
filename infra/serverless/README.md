@@ -21,6 +21,10 @@ The pipeline builds `functions.zip` once (`deploy.yml`) and passes it with `TF_V
 goes to dev then prd. Without it (PR plans, destroy), the stack zips `app/functions/src` + `package.json` itself
 and prints a `functions_artifact` check warning.
 
+The zip is already built (the content of `dist/`, no `src/`). Cloud Build would still run `npm run build` because
+`package.json` has a `build` script, and fail on the missing `src/`: the empty `gcp-build` script in
+`app/functions/package.json` tells it to only install the production dependencies. Do not remove it.
+
 ## Frontend hosting
 
 ```

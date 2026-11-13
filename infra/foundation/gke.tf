@@ -1,5 +1,5 @@
 # GKE cluster that runs the self-hosted GitHub Actions runners (Actions Runner
-# Controller, see k8s/runners and docs/ci/self-hosted-runners.md). The nodes
+# Controller, see runners.tf and docs/ci/self-hosted-runners.md). The nodes
 # live in the dedicated runners subnet and have no public IP.
 
 resource "google_service_account" "runners_nodes" {
@@ -13,6 +13,9 @@ resource "google_service_account" "runners_nodes" {
 resource "google_project_iam_member" "runners_nodes" {
   count = var.runners_enabled ? 1 : 0
 
+  # Reading the project IAM policy needs the Cloud Resource Manager API.
+  depends_on = [google_project_service.foundation]
+
   project = var.project_id
   role    = "roles/container.defaultNodeServiceAccount"
   member  = "serviceAccount:${google_service_account.runners_nodes[0].email}"
@@ -20,11 +23,12 @@ resource "google_project_iam_member" "runners_nodes" {
 
 resource "google_container_cluster" "runners" {
   #checkov:skip=CKV_GCP_66:Binary Authorization needs a signed-image pipeline; the runner images are public and pinned by tag
-  #checkov:skip=CKV_GCP_65:No Google Groups for RBAC: the cluster has no human users, Kubernetes RBAC is only used by the admin running install.sh
+  #checkov:skip=CKV_GCP_65:No Google Groups for RBAC: the cluster has no human users, Kubernetes access goes through the IAM roles of the deploy and plan service accounts
   count = var.runners_enabled ? 1 : 0
 
-  # Nodes must not start before their service account has its role.
-  depends_on = [google_project_iam_member.runners_nodes]
+  # Nodes must not start before their service account has its role, and the
+  # GKE API must be enabled first.
+  depends_on = [google_project_iam_member.runners_nodes, google_project_service.foundation]
 
   name = var.runners_cluster_name
   # Zonal on purpose: a regional cluster would run the node pool in 3 zones
@@ -53,19 +57,30 @@ resource "google_container_cluster" "runners" {
     services_secondary_range_name = "runners-services"
   }
 
-  # Private nodes; the control plane keeps a public endpoint so that Helm can
-  # reach it, but only from the authorized networks below.
+  # Private nodes. The IP-based public endpoint stays, but closed by the
+  # authorized networks below.
   private_cluster_config {
     enable_private_nodes    = true
     enable_private_endpoint = false
     master_ipv4_cidr_block  = var.runners_master_cidr
   }
 
-  # Authorized networks are managed outside Terraform (see the docs): the
-  # admin IP changes often and must not be committed, and a deploy must not
-  # reset the list. An empty block still ENABLES authorized networks (with no
-  # range): the public endpoint is closed to the Internet until an admin range
-  # is added. Do not remove the block, that would open the endpoint.
+  # Terraform (Helm and Kubernetes providers, see runners.tf) reaches the
+  # control plane through the DNS-based endpoint: every request is
+  # authenticated and authorized by IAM (container.clusters.connect plus the
+  # Kubernetes permissions of the caller), so no source IP has to be allowed.
+  # The deploy workflow runs on GitHub-hosted runners, whose IPs are unknown.
+  control_plane_endpoints_config {
+    dns_endpoint_config {
+      allow_external_traffic = true
+    }
+  }
+
+  # Authorized networks of the IP-based endpoint are managed outside Terraform
+  # (see the docs): an admin IP changes often and must not be committed, and a
+  # deploy must not reset the list. An empty block still ENABLES authorized
+  # networks (with no range): the IP endpoint is closed to the Internet until an
+  # admin range is added. Do not remove the block, that would open it.
   master_authorized_networks_config {}
 
   workload_identity_config {
