@@ -23,7 +23,7 @@ export const valid = {
   "pixel.processed": {
     batchId: "b-1",
     userId: user.id,
-    pixels: [{ x: 1, y: 1, color: -1 }],
+    pixels: [{ x: 1, y: 1, color: 0x00ff00 }],
     rejected: [{ x: 2, y: 2, reason: "rate_limited" }],
   },
   "snapshot.requested": { requestId: "r-1", requestedBy: user.id, reason: "command", interaction },

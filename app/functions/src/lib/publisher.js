@@ -23,7 +23,10 @@ export function createPublisher({ source, client, topics = {} }) {
   const topicHandles = new Map();
 
   async function topic(name) {
-    clientPromise ??= defaultClient();
+    clientPromise ??= defaultClient().catch((error) => {
+      clientPromise = undefined; // a failed import is retried on the next publish
+      throw error;
+    });
     if (!topicHandles.has(name)) topicHandles.set(name, (await clientPromise).topic(name));
     return topicHandles.get(name);
   }

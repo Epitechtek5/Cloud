@@ -46,6 +46,27 @@ test("does not cache a failure", async () => {
   assert.equal(client.calls.length, 2);
 });
 
+test("a failed read does not evict a newer cached read", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 0 });
+  let fail;
+  const client = {
+    calls: 0,
+    async accessSecretVersion() {
+      this.calls++;
+      if (this.calls === 1) await new Promise((_, reject) => (fail = reject));
+      return [{ payload: { data: Buffer.from("new") } }];
+    },
+  };
+  const secrets = createSecretReader({ client, projectId: "p1", ttlMs: 1000 });
+  const first = secrets.get("discord-public-key");
+  t.mock.timers.tick(2000); // the pending first read expires
+  assert.equal(await secrets.get("discord-public-key"), "new");
+  fail(new Error("unavailable"));
+  await assert.rejects(first, /unavailable/);
+  assert.equal(await secrets.get("discord-public-key"), "new");
+  assert.equal(client.calls, 2); // the newer entry is still cached
+});
+
 test("expires entries after ttlMs and can be cleared", async () => {
   const client = fakeClient({ [KEY]: "abc" });
   const secrets = createSecretReader({ client, projectId: "p1", ttlMs: -1 });

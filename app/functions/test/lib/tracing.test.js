@@ -26,3 +26,16 @@ test("the library entry point exports every helper", async () => {
   ])
     assert.equal(typeof lib[name], "function", name);
 });
+
+test("a rejected bootstrap is retried on the next call", async () => {
+  let calls = 0;
+  registerTracingHook(async () => {
+    calls++;
+    if (calls === 1) throw new Error("exporter down");
+    return "sdk";
+  });
+  await assert.rejects(initTracing(), /exporter down/);
+  assert.equal(await initTracing(), "sdk");
+  assert.equal(await initTracing(), "sdk");
+  assert.equal(calls, 2);
+});

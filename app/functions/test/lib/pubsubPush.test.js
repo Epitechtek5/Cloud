@@ -31,3 +31,10 @@ test("rejects malformed push bodies", () => {
   assert.throws(() => decodePushMessage(body("{not json", { event_type: "pixel.draw" })), /not JSON/);
   assert.throws(() => decodePushMessage(body({}, { event_type: "pixel.draw" })), EventValidationError);
 });
+
+test("refuses an event type the worker does not handle", () => {
+  const draw = body(valid["pixel.draw"], { event_type: "pixel.draw" });
+  assert.equal(decodePushMessage(draw, { expect: "pixel.draw" }).eventType, "pixel.draw");
+  assert.equal(decodePushMessage(draw, { expect: ["pixel.draw", "discord.command"] }).eventType, "pixel.draw");
+  assert.throws(() => decodePushMessage(draw, { expect: "discord.command" }), /unexpected event_type pixel.draw/);
+});

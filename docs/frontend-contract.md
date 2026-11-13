@@ -79,7 +79,8 @@ La **limite est obligatoire** : les règles refusent toute requête sur `pixels`
 d'une tuile, donc jamais atteinte par une requête de tuile). Elle plafonne ce qu'une requête abusive peut lire et facturer.
 
 Le premier snapshot contient seulement ce qui est plus récent que le raster, puis chaque changement arrive en delta : **pas de
-polling, aucun pixel perdu entre le raster et l'abonnement**. L'effacement (`/admin clear`) est un delta avec `c = -1`.
+polling, aucun pixel perdu entre le raster et l'abonnement**. L'effacement (`/admin clear`) vide toute la grille : ce n'est **pas** un delta par pixel
+(10^10 pixels), mais un signal (`pixel.processed` avec `cleared: true`) ; le front oublie ses deltas et recharge les rasters.
 
 > Conséquence : le front s'abonne **après** avoir chargé le raster. C'est fait dans le front et le mock :
 > `TileSource.loadTile` renvoie `{ rgba, version }` (`version` = `X-Tile-Version`, `0` pour une tuile vide) et

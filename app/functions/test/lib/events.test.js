@@ -30,7 +30,9 @@ const invalid = [
   ["discord.command", { ...valid["discord.command"], options: [] }, "payload.options must be an object"],
   ["discord.command", { ...valid["discord.command"], command: undefined }, "payload.command is required"],
   ["discord.command", { ...valid["discord.command"], guildId: "abc" }, "payload.guildId has an invalid format"],
-  ["pixel.processed", { ...valid["pixel.processed"], pixels: [{ x: 1, y: 1, color: -2 }] }, "color must be between -1"],
+  ["pixel.processed", { ...valid["pixel.processed"], pixels: [{ x: 1, y: 1, color: -1 }] }, "color must be between 0"],
+  ["pixel.processed", { ...valid["pixel.processed"], pixels: Array(257).fill({ x: 0, y: 0, color: 0 }) }, "0 to 256 items"],
+  ["pixel.processed", { ...valid["pixel.processed"], cleared: "yes" }, "payload.cleared must be a boolean"],
   ["snapshot.requested", { ...valid["snapshot.requested"], reason: "cron" }, "payload.reason must be one of"],
 ];
 
@@ -57,4 +59,18 @@ test("assertEvent returns the payload or throws EventValidationError", () => {
     () => assertEvent("pixel.draw", {}),
     (err) => err instanceof EventValidationError && err.eventType === "pixel.draw" && err.errors.length > 0,
   );
+});
+
+test("pixel.processed carries an /admin clear as a signal, not as per-pixel deltas", () => {
+  const clear = { batchId: "clear-1", userId: valid["pixel.processed"].userId, cleared: true, pixels: [] };
+  assert.deepEqual(validateEvent("pixel.processed", clear), { ok: true });
+});
+
+test("prototype keys are not schema fields", () => {
+  for (const key of ["constructor", "toString", "hasOwnProperty", "__proto__"]) {
+    const payload = JSON.parse(JSON.stringify(valid["pixel.draw"]).replace(/^\{/, `{"${key}":1,`));
+    const result = validateEvent("pixel.draw", payload);
+    assert.equal(result.ok, false, key);
+    assert.ok(result.errors.includes(`payload.${key} is not allowed`), result.errors.join(" | "));
+  }
 });

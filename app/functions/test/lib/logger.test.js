@@ -49,6 +49,25 @@ test("maps every severity, filters below the level, serializes errors", () => {
   assert.equal("skipped" in out.lines[3], false);
 });
 
+test("accepts WARN-style aliases and falls back to INFO on an unknown level", () => {
+  const out = captureLogs();
+  createLogger({}, { write: out.write, level: "warn" }).info("hidden");
+  createLogger({}, { write: out.write, level: "WARN" }).warn("w");
+  createLogger({}, { write: out.write, level: "verbose" }).debug("hidden");
+  createLogger({}, { write: out.write, level: "verbose" }).info("i");
+  assert.deepEqual(
+    out.lines.map((l) => l.message),
+    ["w", "i"],
+  );
+});
+
+test("fields cannot override severity or message", () => {
+  const out = captureLogs();
+  createLogger({ severity: "DEBUG" }, { write: out.write }).info("real", { message: "x", severity: "CRITICAL" });
+  assert.equal(out.lines[0].severity, "INFO");
+  assert.equal(out.lines[0].message, "real");
+});
+
 test("child keeps the level and the sink", () => {
   const out = captureLogs();
   const log = createLogger({ function: "f" }, { write: out.write, level: "WARNING" }).child({ userId: "1" });

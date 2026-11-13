@@ -6,8 +6,6 @@
 export const GRID_SIZE = 100_000;
 export const MAX_PIXELS_PER_BATCH = 256;
 export const MAX_COLOR = 0xffffff;
-/** Colour used by `/admin clear` deltas in `pixel.processed`. */
-export const CLEARED_COLOR = -1;
 
 export const EVENT_TYPES = Object.freeze(["discord.command", "pixel.draw", "pixel.processed", "snapshot.requested"]);
 
@@ -15,6 +13,7 @@ export const EVENT_TYPES = Object.freeze(["discord.command", "pixel.draw", "pixe
 
 const str = ({ min = 1, max = 256, pattern, optional = false } = {}) => ({ kind: "string", min, max, pattern, optional });
 const int = ({ min, max, optional = false } = {}) => ({ kind: "int", min, max, optional });
+const bool = ({ optional = false } = {}) => ({ kind: "boolean", optional });
 const oneOf = (values, { optional = false } = {}) => ({ kind: "enum", values, optional });
 const arrayOf = (item, { min = 0, max = Infinity, optional = false } = {}) => ({ kind: "array", item, min, max, optional });
 const object = (fields, { optional = false, nullable = false } = {}) => ({ kind: "object", fields, optional, nullable });
@@ -63,13 +62,14 @@ export const SCHEMAS = Object.freeze({
   }),
 
   // Pixels written by the draw worker, fanned out to the real-time channel.
+  // `/admin clear` empties the whole grid: it is not sent as per-pixel deltas
+  // (10^10 pixels) but as `cleared: true` with no pixels; consumers drop their
+  // state and reload the rasters.
   "pixel.processed": object({
     batchId: str({ pattern: ID }),
     userId: str({ pattern: SNOWFLAKE }),
-    pixels: arrayOf(
-      object({ x: coordinate, y: coordinate, color: int({ min: CLEARED_COLOR, max: MAX_COLOR }) }),
-      { max: GRID_SIZE },
-    ),
+    cleared: bool({ optional: true }),
+    pixels: arrayOf(pixel, { max: MAX_PIXELS_PER_BATCH }),
     rejected: arrayOf(
       object({ x: coordinate, y: coordinate, reason: oneOf(["rate_limited", "paused", "invalid"]) }),
       { max: MAX_PIXELS_PER_BATCH, optional: true },
@@ -108,6 +108,9 @@ function check(schema, value, path, errors) {
       if ((schema.min !== undefined && value < schema.min) || (schema.max !== undefined && value > schema.max))
         errors.push(`${path} must be between ${schema.min} and ${schema.max}`);
       return;
+    case "boolean":
+      if (typeof value !== "boolean") errors.push(`${path} must be a boolean`);
+      return;
     case "enum":
       if (!schema.values.includes(value)) errors.push(`${path} must be one of ${schema.values.join(", ")}`);
       return;
@@ -123,8 +126,9 @@ function check(schema, value, path, errors) {
     case "object":
       if (typeof value !== "object" || Array.isArray(value)) return void errors.push(`${path} must be an object`);
       for (const [key, sub] of Object.entries(schema.fields)) check(sub, value[key], `${path}.${key}`, errors);
+      // Object.hasOwn, not `in`: prototype keys (constructor, __proto__, ...) are not fields.
       for (const key of Object.keys(value))
-        if (!(key in schema.fields)) errors.push(`${path}.${key} is not allowed`);
+        if (!Object.hasOwn(schema.fields, key)) errors.push(`${path}.${key} is not allowed`);
       return;
     default:
       throw new Error(`unknown schema kind ${schema.kind}`);

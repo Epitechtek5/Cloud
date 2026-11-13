@@ -5,7 +5,7 @@
   "description": "Cloud Run functions: one entry point per function in src/, shared runtime library in src/lib",
   "type": "module",
   "scripts": {
-    "lint": "find src test -name '*.js' -exec node --check {} \\;",
+    "lint": "find src test -name '*.js' -print0 | xargs -0 -n1 node --check",
     "test": "node --test",
     "test:coverage": "node --test --experimental-test-coverage --test-coverage-include='src/lib/**' --test-coverage-lines=90 --test-coverage-branches=80 --test-coverage-functions=90",
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true});require('fs').cpSync('src','dist',{recursive:true});require('fs').copyFileSync('package.json','dist/package.json');require('fs').copyFileSync('package-lock.json','dist/package-lock.json')\"",

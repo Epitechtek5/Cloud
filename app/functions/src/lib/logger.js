@@ -6,6 +6,15 @@
 // every other field lands in `jsonPayload`.
 
 const SEVERITIES = ["DEBUG", "INFO", "NOTICE", "WARNING", "ERROR", "CRITICAL"];
+// Common spellings of LOG_LEVEL that are not Cloud Logging severities.
+const LEVEL_ALIASES = { WARN: "WARNING", ERR: "ERROR", FATAL: "CRITICAL" };
+
+/** Minimum severity index for a LOG_LEVEL value; an unknown value falls back to INFO. */
+function levelIndex(level) {
+  const name = String(level).trim().toUpperCase();
+  const index = SEVERITIES.indexOf(LEVEL_ALIASES[name] ?? name);
+  return index === -1 ? SEVERITIES.indexOf("INFO") : index;
+}
 
 // Fields known by the platform conventions (C05 §6): renamed to snake_case.
 const FIELD_NAMES = {
@@ -40,13 +49,14 @@ function serializeError(error) {
 export function createLogger(context = {}, options = {}) {
   const projectId = options.projectId ?? process.env.GOOGLE_CLOUD_PROJECT ?? process.env.GCP_PROJECT;
   const write = options.write ?? defaultWrite;
-  const level = (options.level ?? process.env.LOG_LEVEL ?? "INFO").toUpperCase();
-  const minIndex = Math.max(0, SEVERITIES.indexOf(level));
+  const level = options.level ?? process.env.LOG_LEVEL ?? "INFO";
+  const minIndex = levelIndex(level);
   const bound = normalize(context);
 
   function log(severity, message, fields) {
     if (SEVERITIES.indexOf(severity) < minIndex) return;
-    const entry = { severity, message: String(message), ...bound, ...normalize(fields) };
+    // severity and message last: fields cannot override them.
+    const entry = { ...bound, ...normalize(fields), severity, message: String(message) };
     if (entry.trace_id && projectId) {
       entry["logging.googleapis.com/trace"] = `projects/${projectId}/traces/${entry.trace_id}`;
       if (entry.span_id) entry["logging.googleapis.com/spanId"] = entry.span_id;

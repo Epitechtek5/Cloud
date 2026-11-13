@@ -13,15 +13,20 @@ export class InvalidPushError extends Error {
 }
 
 /**
+ * @param {object} body  the push request body
+ * @param {object} [options]
+ * @param {string | string[]} [options.expect]  event type(s) this worker handles; any other type is refused
  * @returns {{ eventType: string, payload: object, correlationId: string, messageId: string, attributes: object, deliveryAttempt?: number }}
  * @throws {InvalidPushError | import("./events.js").EventValidationError}
  */
-export function decodePushMessage(body) {
+export function decodePushMessage(body, { expect } = {}) {
   const message = body?.message;
   if (!message || typeof message.data !== "string") throw new InvalidPushError("not a Pub/Sub push body");
   const attributes = message.attributes ?? {};
   const eventType = attributes.event_type;
   if (!eventType) throw new InvalidPushError("missing event_type attribute");
+  if (expect !== undefined && ![expect].flat().includes(eventType))
+    throw new InvalidPushError(`unexpected event_type ${eventType}`);
 
   let payload;
   try {

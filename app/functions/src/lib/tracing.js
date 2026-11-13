@@ -16,6 +16,13 @@ export function registerTracingHook(fn) {
 /** Runs the registered bootstrap once per instance; a no-op until one is registered. */
 export function initTracing(context = {}) {
   if (!hook) return undefined;
-  initialized ??= hook(context);
+  if (initialized === undefined) {
+    initialized = hook(context);
+    // A rejected bootstrap is not cached: the next call retries it.
+    if (typeof initialized?.catch === "function")
+      initialized.catch(() => {
+        initialized = undefined;
+      });
+  }
   return initialized;
 }

@@ -27,7 +27,10 @@ export function createSecretReader({ client, projectId, ttlMs = Infinity } = {})
   }
 
   async function read(resource) {
-    clientPromise ??= defaultClient();
+    clientPromise ??= defaultClient().catch((error) => {
+      clientPromise = undefined; // a failed import is retried on the next read
+      throw error;
+    });
     const [response] = await (await clientPromise).accessSecretVersion({ name: resource });
     return Buffer.from(response.payload.data).toString("utf8");
   }
@@ -40,7 +43,10 @@ export function createSecretReader({ client, projectId, ttlMs = Infinity } = {})
       if (cached && cached.expiresAt > Date.now()) return cached.value;
       const value = read(resource);
       cache.set(resource, { value, expiresAt: Date.now() + ttlMs });
-      value.catch(() => cache.delete(resource));
+      // Only drop our own entry: with a short ttlMs a newer read may already be cached.
+      value.catch(() => {
+        if (cache.get(resource)?.value === value) cache.delete(resource);
+      });
       return value;
     },
     /** Drops the cache (e.g. after a key rotation detected by a failed verification). */
