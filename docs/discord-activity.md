@@ -56,7 +56,17 @@ Réponse 200 :
 ```
 
 - `discordAccessToken` : **uniquement si `activity: true`**. Il sert au front pour `sdk.authenticate()` et n'est jamais stocké. Sans lui, l'Activity échoue.
-- Erreur : 4xx/5xx sans détail sensible. Le front affiche « Login failed (HTTP n) ».
+- `firebaseToken` : custom token Firebase (`uid` = id Discord), **seulement si** l'option
+  `auth_discord_firebase_custom_token` est activée en Terraform (désactivée par défaut, voir #67).
+- Erreur : 4xx/5xx sans détail sensible, corps `{ "error": "<code>" }`. Le front affiche « Login failed (HTTP n) ».
+  `400 invalid_request` (corps invalide), `400 invalid_redirect_uri` (absent de l'allow-list), `401 invalid_grant`
+  (code refusé par Discord : expiré, déjà utilisé, mauvais verifier), `502 upstream_error` (Discord ou Google indisponible).
+
+Implémentation : fonction `auth-discord` (`app/functions/src/auth-discord`, `infra/serverless/auth_discord.tf`).
+Le JWT est signé en **ES256** (clé privée `jwt-signing-key`) ; claims `iss`, `aud`, `sub` (id Discord), `username`,
+`iat`, `exp`, `jti`. La même fonction sert la clé publique (JWKS) sur `GET`, que la gateway utilise pour vérifier
+la signature (`x-google-jwks_uri`). Le `redirectUri` doit figurer **exactement** dans `auth_discord_redirect_uris`
+(par environnement), dont les origines servent aussi d'allow-list CORS.
 
 Le front envoie ensuite `Authorization: Bearer <token>` sur tous les appels ; la gateway valide le JWT. Il propage aussi `X-Correlation-Id`.
 

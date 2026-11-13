@@ -12,6 +12,7 @@ of each environment: `scripts/bootstrap-state-bucket.sh` creates it (already don
 | `secrets.tf` | Secret Manager **containers**; values are added out of band |
 | `artifacts.tf` | Function source bucket and zip, Artifact Registry repository, build service account |
 | `functions.tf` | One `modules/function` instance per function |
+| `auth_discord.tf` | `POST /auth/discord` (#67) with its variables and outputs |
 | `outputs.tf` | `app_url` (deploy smoke test contract) and ids reused by the other issues |
 
 ## Function source
@@ -53,6 +54,18 @@ printf '%s' "$VALUE" | gcloud secrets versions add discord-public-key --project 
 ```
 
 `discord-public-key`, `discord-bot-token`, `discord-oauth-client-secret`, `jwt-signing-key`: never in tfvars.
+
+A function cannot start while one of its secrets has no version: add them **before** the first apply that deploys it.
+`jwt-signing-key` is an EC P-256 private key (PEM), generated straight into Secret Manager, never written to disk:
+
+```sh
+openssl ecparam -name prime256v1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt |
+  gcloud secrets versions add jwt-signing-key --project <project_id> --data-file=-
+```
+
+The gateway verifies the session JWT with the public half, served by `auth-discord` on `GET` (JWKS). A new version
+is read by new instances only, so rotate the key by adding a version **then** deploying a new revision (next
+release); sessions signed with the old key (10 min at most) are then rejected and users log in again.
 
 ## Deployer permissions
 
