@@ -1,8 +1,8 @@
 // Configuration of POST /auth/discord, read once per instance from the
-// environment set by Terraform (infra/serverless/auth_discord.tf). Secrets come
-// from Secret Manager as environment variables; they are never logged.
-
-import { loadSigningKey } from "./jwt.js";
+// environment set by Terraform (infra/serverless/auth_discord.tf). The Discord
+// client secret comes from Secret Manager as an environment variable; it is
+// never logged. The session JWT has no key of ours: it is signed by the
+// function's service account (sign.js).
 
 function required(env, name) {
   const value = env[name];
@@ -39,7 +39,6 @@ export function loadConfig(env = process.env) {
   return {
     discordClientId: required(env, "DISCORD_CLIENT_ID"),
     discordClientSecret: required(env, "DISCORD_CLIENT_SECRET"),
-    signingKey: loadSigningKey(required(env, "JWT_SIGNING_KEY")),
     issuer: required(env, "JWT_ISSUER"),
     audience: required(env, "JWT_AUDIENCE"),
     ttlSeconds: requiredInt(env, "JWT_TTL_SECONDS", 60, 3600),

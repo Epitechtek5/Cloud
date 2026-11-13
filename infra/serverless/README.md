@@ -13,6 +13,8 @@ of each environment: `scripts/bootstrap-state-bucket.sh` creates it (already don
 | `artifacts.tf` | Function source bucket and zip, Artifact Registry repository, build service account |
 | `functions.tf` | One `modules/function` instance per function |
 | `auth_discord.tf` | `POST /auth/discord` (#67) with its variables and outputs |
+| `gateway.tf` | API Gateway (#60): gateway service account, API, config, gateway, `gateway-stub` function |
+| `openapi/api.yaml.tftpl` | The OpenAPI 2.0 spec of the gateway, rendered with the function URLs |
 | `frontend.tf` | Frontend bucket (private), generated `config.json`, HTTPS load balancer with Cloud CDN |
 | `firestore.tf` | Firestore database, composite indexes, TTL and index overrides, security rules release |
 | `firestore.rules` | Browser security rules: read-only, own documents only (tests in `tests/firestore-rules`) |
@@ -63,7 +65,54 @@ browser / Discord proxy ──HTTPS──> global external Application LB (manag
   ([docs/discord-activity.md](../../docs/discord-activity.md) §1).
 - **Tiles** (open question A, #68): `local.frontend_tiles_backend` adds a `/tiles/*` route to a backend service
   (serverless NEG of the tile-reader, ingress `internal-and-cloud-load-balancing`) on the same origin and CDN.
-- **API** (#60): `local.frontend_api_base` takes `var.api_base_url` (empty) until the gateway URL is wired there.
+- **API** (#60): `apiBase` is the URL of the API Gateway (`local.gateway_url`); `var.api_base_url` overrides it.
+
+## API Gateway
+
+```
+browser / Discord ──HTTPS──> API Gateway (gateway_region) ──ID token of api-gateway@──> private function
+                              JWT checked here                run.invoker: this account only, never allUsers
+```
+
+The gateway is the only public entry point. A function URL answers `403` to anyone but the gateway: `ingress` is
+`ALLOW_ALL` (the gateway is not an internal source), and the lock is IAM, `roles/run.invoker` for
+`api-gateway@<project>.iam.gserviceaccount.com` on each function (`local.gateway_invokers`). The gateway signs a
+Google ID token with that account for every call (`jwt_audience` in the spec).
+
+| Route | Authentication | Backend |
+|---|---|---|
+| `GET /health` | none | `health` (deploy smoke test) |
+| `POST /discord/interactions` | none: the proxy verifies the Ed25519 signature | `discord-proxy` |
+| `POST /auth/discord` | none: it creates the session | `auth-discord` |
+| `POST /pixels`, `GET /pixels/{x}/{y}` | session JWT | proxy of #66, `gateway-stub` until then |
+| `GET /tiles/{tx}/{file}` | session JWT | only with `gateway_tiles_route = true` (option 1 of open question A) |
+| `OPTIONS` on the routes the browser calls | none | the same backend, which answers the CORS preflight |
+
+- **Where the JWT is checked.** `x-google-issuer`, `x-google-audiences` (outputs `auth_jwt`) and the signature. The token
+  is signed by the service account of `auth-discord` through IAM Credentials (`signJwt`), so the keys are the ones
+  Google publishes for that account: `https://www.googleapis.com/robot/v1/metadata/x509/fn-auth-discord@<project>...`.
+  No key of ours, nothing to rotate. The first design (own ES256 key and a JWKS served by the function) was dropped:
+  the JWKS URL would be the gateway's own, which does not exist until the config that contains it does (a cycle), and
+  the function cannot be public.
+- **What a backend receives.** The request path appended to its URL (`/pixels/10/20`), the original `Authorization`
+  moved to `X-Forwarded-Authorization`, and the verified claims, base64url-encoded JSON, in `X-Apigateway-Api-Userinfo`
+  (`sub` is the Discord id): a proxy reads the user from there, it does not parse the token again.
+- **CORS** is answered by the backends (the gateway only forwards `OPTIONS`); the allowed origins are those of
+  `auth_discord_redirect_uris`. Each new proxy must answer its own preflight like `auth-discord` does.
+- **Routes without a function yet** point to `gateway-stub` (answers `501`): the route, its JWT check and its IAM
+  are live. Replace the line in `local.gateway_backends` when the function lands.
+- **Region.** API Gateway is not available in `europe-west9` (prd): `gateway_region` defaults to `europe-west1`, the
+  functions stay in `region`. The validation lists the supported regions.
+- **Throttling.** API Gateway quotas count per consumer *project* and need an API key, so they cannot limit anonymous
+  users, and a global cap would let one attacker lock everybody out. What bounds the load instead is `max_instances` on each
+  function (the cost ceiling) and the business rate limit of the draw worker. Per-IP limits would need a load
+  balancer with Cloud Armor in front of the gateway: not done.
+- **Changing the spec.** A config is immutable: a new one is created (`create_before_destroy`), the gateway moves to
+  it, the old one is deleted. Only the pipeline applies it. `deploy-env.yml` then calls `GET /health` through the gateway.
+- **Adding a route.** Add the path in `openapi/api.yaml.tftpl`, its backend in `local.gateway_backends`, and put
+  `local.gateway_invokers` in the `invokers` of the function.
+- **Discord.** `terraform output -raw discord_interactions_url` is the Interactions Endpoint URL of the Developer
+  Portal; the host of `gateway_url` is the target of the Activity mapping `/api` (`docs/discord-activity.md`).
 
 ## Adding a function
 
@@ -149,19 +198,11 @@ and the snapshots bucket refuses `force_destroy`, so `destroy.yml` stops there u
 printf '%s' "$VALUE" | gcloud secrets versions add discord-public-key --project <project_id> --data-file=-
 ```
 
-`discord-public-key`, `discord-bot-token`, `discord-oauth-client-secret`, `jwt-signing-key`: never in tfvars.
+`discord-public-key`, `discord-bot-token`, `discord-oauth-client-secret`: never in tfvars.
 
 A function cannot start while one of its secrets has no version: add them **before** the first apply that deploys it.
-`jwt-signing-key` is an EC P-256 private key (PEM), generated straight into Secret Manager, never written to disk:
-
-```sh
-openssl ecparam -name prime256v1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt |
-  gcloud secrets versions add jwt-signing-key --project <project_id> --data-file=-
-```
-
-The gateway verifies the session JWT with the public half, served by `auth-discord` on `GET` (JWKS). A new version
-is read by new instances only, so rotate the key by adding a version **then** deploying a new revision (next
-release); sessions signed with the old key (10 min at most) are then rejected and users log in again.
+The session JWT needs no secret: `auth-discord` signs it as its own service account (IAM Credentials), and the gateway
+verifies it with the keys Google publishes for that account (see "API Gateway"). Google rotates those keys itself.
 
 ## Deployer permissions
 

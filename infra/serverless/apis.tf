@@ -11,6 +11,7 @@ locals {
     "eventarc.googleapis.com",
     "firestore.googleapis.com",
     "secretmanager.googleapis.com",
+    "iamcredentials.googleapis.com", # auth-discord signs the session JWT with its own account (signJwt)
     "cloudtrace.googleapis.com",
     "monitoring.googleapis.com",
     "logging.googleapis.com",

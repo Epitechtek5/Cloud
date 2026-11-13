@@ -9,8 +9,18 @@ initTracing();
 
 const secrets = createSecretReader();
 
+// Behind the gateway route GET /health, private like every function.
 export function hello(req, res) {
   res.status(200).send("ok");
+}
+
+// Temporary backend of the gateway routes whose function is not delivered yet
+// (POST /pixels, GET /pixels/{x}/{y}): the route, its JWT check and its IAM
+// are already live, the answer is an honest 501. Terraform points each route
+// to its real function as soon as it exists (infra/serverless/gateway.tf).
+export function notImplemented(req, res) {
+  res.set("Cache-Control", "no-store");
+  res.status(501).json({ error: "not_implemented" });
 }
 
 // Public key of the environment's Discord application. Terraform injects it

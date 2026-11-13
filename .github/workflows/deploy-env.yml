@@ -100,3 +100,10 @@ jobs:
           echo "Checking $url"
           curl --fail --silent --show-error --location \
             --retry 5 --retry-delay 5 --retry-all-errors "$url" > /dev/null
+
+          # The gateway end to end: gateway -> ID token of its service account
+          # -> private function. A new config can take a moment to be served.
+          gateway=$(terraform -chdir=infra/serverless output -raw gateway_url)
+          echo "Checking $gateway/health"
+          curl --fail --silent --show-error \
+            --retry 10 --retry-delay 6 --retry-all-errors "$gateway/health" > /dev/null

@@ -9,7 +9,6 @@ locals {
     discord-public-key          = "Discord application public key, verifies the Ed25519 signature of interactions"
     discord-bot-token           = "Discord bot token, used by the workers to post follow-ups"
     discord-oauth-client-secret = "Discord OAuth2 client secret of the web login"
-    jwt-signing-key             = "Key signing the session JWT issued by POST /auth/discord"
   }
 }
 

@@ -1,0 +1,228 @@
+# Public API of the pixel canvas (OpenAPI 2.0, the version API Gateway reads).
+# Rendered by `templatefile` in ../gateway.tf: $${...} is replaced by Terraform
+# with the URL of the function behind each route, nothing else. Contract with
+# the front: docs/frontend-contract.md. Rationale of each choice: README.md,
+# section "API Gateway".
+#
+# What every `x-google-backend` below means:
+#   address          URL of the function. API Gateway appends the request path.
+#   jwt_audience     the gateway signs a Google ID token for that audience with
+#                    its own service account (api-gateway@...); the function
+#                    accepts it only because that account has roles/run.invoker.
+#                    The caller's original Authorization header is moved to
+#                    X-Forwarded-Authorization, and the verified JWT claims are
+#                    base64url-encoded in X-Apigateway-Api-Userinfo.
+#   deadline         seconds the gateway waits for the backend.
+swagger: "2.0"
+info:
+  title: pixel-canvas-${env}
+  description: Public entry points of the pixel canvas (Discord, login, drawing)
+  version: "1.0.0"
+schemes:
+  - https
+consumes:
+  - application/json
+produces:
+  - application/json
+
+securityDefinitions:
+  # Session token issued by POST /auth/discord and signed by the service
+  # account of auth-discord: the gateway checks the signature against the
+  # public keys Google publishes for that account, then iss, aud and exp.
+  discord_session:
+    authorizationUrl: ""
+    flow: implicit
+    type: oauth2
+    x-google-issuer: "${jwt_issuer}"
+    x-google-jwks_uri: "${jwt_jwks_uri}"
+    x-google-audiences: "${jwt_audience}"
+
+paths:
+  # Liveness of the gateway and of one function behind it (deploy smoke test).
+  /health:
+    get:
+      operationId: health
+      summary: Liveness
+      security: []
+      x-google-backend:
+        address: ${backends.health}
+        jwt_audience: ${backends.health}
+        path_translation: APPEND_PATH_TO_ADDRESS
+        deadline: 5.0
+      responses:
+        "200":
+          description: ok
+
+  # Discord calls this URL. No JWT: Discord sends none, and the proxy verifies
+  # the Ed25519 signature of the raw body, which is the authentication.
+  /discord/interactions:
+    post:
+      operationId: discordInteractions
+      summary: Discord interactions endpoint (slash commands)
+      security: []
+      x-google-backend:
+        address: ${backends.discord_interactions}
+        jwt_audience: ${backends.discord_interactions}
+        path_translation: APPEND_PATH_TO_ADDRESS
+        deadline: 10.0
+      responses:
+        "200":
+          description: PONG or deferred response
+        "401":
+          description: Missing or invalid Discord signature
+
+  # Public by nature: this is what creates the session. The function validates
+  # the body, the redirect URI allow-list and the Discord code.
+  /auth/discord:
+    post:
+      operationId: authDiscord
+      summary: Exchange a Discord OAuth2 code for a session token
+      security: []
+      x-google-backend:
+        address: ${backends.auth_discord}
+        jwt_audience: ${backends.auth_discord}
+        path_translation: APPEND_PATH_TO_ADDRESS
+        deadline: 25.0
+      responses:
+        "200":
+          description: Session token
+        "400":
+          description: Invalid request or redirect URI
+        "401":
+          description: Discord refused the code
+        "502":
+          description: Discord or the signing service is unavailable
+    # CORS preflight: the gateway forwards it, the function answers it.
+    options:
+      operationId: authDiscordPreflight
+      summary: CORS preflight
+      security: []
+      x-google-backend:
+        address: ${backends.auth_discord}
+        jwt_audience: ${backends.auth_discord}
+        path_translation: APPEND_PATH_TO_ADDRESS
+        deadline: 5.0
+      responses:
+        "204":
+          description: CORS headers
+
+  /pixels:
+    post:
+      operationId: drawPixels
+      summary: Draw up to 256 pixels (asynchronous, published on Pub/Sub)
+      security:
+        - discord_session: []
+      x-google-backend:
+        address: ${backends.pixels_draw}
+        jwt_audience: ${backends.pixels_draw}
+        path_translation: APPEND_PATH_TO_ADDRESS
+        deadline: 15.0
+      responses:
+        "202":
+          description: Accepted, the result comes back in real time
+        "400":
+          description: Invalid pixels
+        "401":
+          description: Missing, invalid or expired session token
+    options:
+      operationId: drawPixelsPreflight
+      summary: CORS preflight
+      security: []
+      x-google-backend:
+        address: ${backends.pixels_draw}
+        jwt_audience: ${backends.pixels_draw}
+        path_translation: APPEND_PATH_TO_ADDRESS
+        deadline: 5.0
+      responses:
+        "204":
+          description: CORS headers
+
+  /pixels/{x}/{y}:
+    parameters:
+      - name: x
+        in: path
+        required: true
+        type: integer
+        minimum: 0
+        maximum: 99999
+      - name: y
+        in: path
+        required: true
+        type: integer
+        minimum: 0
+        maximum: 99999
+    get:
+      operationId: getPixel
+      summary: Who painted this pixel, with which color, and when
+      security:
+        - discord_session: []
+      x-google-backend:
+        address: ${backends.pixel_get}
+        jwt_audience: ${backends.pixel_get}
+        path_translation: APPEND_PATH_TO_ADDRESS
+        deadline: 15.0
+      responses:
+        "200":
+          description: The pixel
+        "401":
+          description: Missing, invalid or expired session token
+        "404":
+          description: Never painted
+    options:
+      operationId: getPixelPreflight
+      summary: CORS preflight
+      security: []
+      x-google-backend:
+        address: ${backends.pixel_get}
+        jwt_audience: ${backends.pixel_get}
+        path_translation: APPEND_PATH_TO_ADDRESS
+        deadline: 5.0
+      responses:
+        "204":
+          description: CORS headers
+%{ if tiles_route ~}
+
+  # Only with `gateway_tiles_route = true` (open question A, option 1). The
+  # file is "<ty>.png": a path segment cannot mix a variable and a suffix.
+  /tiles/{tx}/{file}:
+    parameters:
+      - name: tx
+        in: path
+        required: true
+        type: integer
+        minimum: 0
+        maximum: 390
+      - name: file
+        in: path
+        required: true
+        type: string
+    get:
+      operationId: getTile
+      summary: Raster of one 256x256 tile
+      security:
+        - discord_session: []
+      x-google-backend:
+        address: ${backends.tiles}
+        jwt_audience: ${backends.tiles}
+        path_translation: APPEND_PATH_TO_ADDRESS
+        deadline: 15.0
+      responses:
+        "200":
+          description: PNG, with the X-Tile-Version header
+        "401":
+          description: Missing, invalid or expired session token
+        "404":
+          description: Empty tile
+    options:
+      operationId: getTilePreflight
+      summary: CORS preflight
+      security: []
+      x-google-backend:
+        address: ${backends.tiles}
+        jwt_audience: ${backends.tiles}
+        path_translation: APPEND_PATH_TO_ADDRESS
+        deadline: 5.0
+      responses:
+        "204":
+          description: CORS headers
+%{ endif ~}

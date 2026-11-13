@@ -44,9 +44,8 @@ locals {
   # a.b.c.d, which is enough for a Google-managed certificate. See README.md.
   frontend_domain = coalesce(var.frontend_domain, "${replace(google_compute_global_address.frontend.address, ".", "-")}.sslip.io")
 
-  # #60: replace with the gateway URL (https://<gateway default_hostname>) once
-  # the API Gateway exists. Until then the variable (empty by default) is used.
-  frontend_api_base = var.api_base_url
+  # The gateway of gateway.tf, unless api_base_url says otherwise.
+  frontend_api_base = coalesce(var.api_base_url, local.gateway_url)
 
   # Read by the front at startup (app/frontend/src/runtimeConfig.ts). Only
   # public values: this ends up in the state and on the CDN.
