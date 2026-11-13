@@ -34,6 +34,10 @@ jobs:
             frontend:
               - 'app/frontend/**'
               - '.github/workflows/ci-frontend.yml'
+            firestore_rules:
+              - 'infra/serverless/firestore.rules'
+              - 'infra/serverless/tests/firestore-rules/**'
+              - '.github/workflows/ci-firestore-rules.yml'
 
       - name: Wait for the expected CI workflows
         env:
@@ -42,12 +46,14 @@ jobs:
           TERRAFORM: ${{ steps.changes.outputs.terraform }}
           FUNCTIONS: ${{ steps.changes.outputs.functions }}
           FRONTEND: ${{ steps.changes.outputs.frontend }}
+          FIRESTORE_RULES: ${{ steps.changes.outputs.firestore_rules }}
         run: |
           # ci-security has no path filter, so it is always expected.
           pending="ci-security.yml"
           [ "$TERRAFORM" = "true" ] && pending="$pending ci-terraform.yml"
           [ "$FUNCTIONS" = "true" ] && pending="$pending ci-functions.yml"
           [ "$FRONTEND" = "true" ] && pending="$pending ci-frontend.yml"
+          [ "$FIRESTORE_RULES" = "true" ] && pending="$pending ci-firestore-rules.yml"
           echo "Expected workflows: $pending"
 
           deadline=$((SECONDS + 2400))

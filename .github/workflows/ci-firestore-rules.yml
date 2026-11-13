@@ -1,0 +1,51 @@
+name: ci-firestore-rules
+
+# Runs infra/serverless/firestore.rules against the Firestore emulator: a
+# browser must never be able to write, nor read the data of another user.
+on:
+  pull_request:
+    paths:
+      - "infra/serverless/firestore.rules"
+      - "infra/serverless/tests/firestore-rules/**"
+      - ".github/workflows/ci-firestore-rules.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-firestore-rules-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: infra/serverless/tests/firestore-rules
+
+jobs:
+  test:
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: infra/serverless/tests/firestore-rules/package-lock.json
+
+      # The Firestore emulator is a Java program.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      # The emulator jar is downloaded by firebase-tools on first use.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ hashFiles('infra/serverless/tests/firestore-rules/package-lock.json') }}
+
+      - run: npm ci
+
+      - name: Rules tests (Firestore emulator)
+        run: npm test

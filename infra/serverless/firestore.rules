@@ -1,0 +1,52 @@
+rules_version = '2';
+
+// Security rules of the browser (Firebase SDK, signInWithCustomToken).
+// Deployed by firestore.tf, tested by tests/firestore-rules.
+//
+// - The browser only reads. Every write is denied: drawing goes through the
+//   API Gateway, a proxy and Pub/Sub (subject 3.4).
+// - The workers write with the server SDK and their own service account. IAM
+//   checks them; these rules do not apply to them.
+// - Anything not matched below (processedBatches, ...) is denied, because
+//   Firestore rules deny by default.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Only our own custom tokens, minted by POST /auth/discord with uid =
+    // Discord id. Refuses any other Firebase sign-in method (anonymous,
+    // email...) even if someone enables it in the console later.
+    function signedIn() {
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider == 'custom';
+    }
+
+    // One document per painted pixel: {x, y, tile, c, a, an, t}.
+    // A tile holds at most 256 x 256 = 65536 pixels, so the front's per-tile
+    // query never needs more. The limit caps what a single query can read
+    // (and bill) if someone queries the whole collection instead.
+    match /pixels/{pixel} {
+      allow get: if signedIn();
+      allow list: if signedIn() && request.query.limit <= 65536;
+      allow write: if false;
+    }
+
+    // Global flags, a single document: session/state {paused, updatedAt}.
+    match /session/{doc} {
+      allow get: if signedIn() && doc == 'state';
+      allow list, write: if false;
+    }
+
+    // Rate limit of one user {limit, used, windowStart}: only its owner.
+    match /users/{uid} {
+      allow get: if signedIn() && request.auth.uid == uid;
+      allow list, write: if false;
+    }
+
+    // Rejected pixels of one user. A query is accepted only if it filters on
+    // uid == own id, so nobody can list the events of someone else.
+    match /userEvents/{event} {
+      allow read: if signedIn() && resource.data.uid == request.auth.uid;
+      allow write: if false;
+    }
+  }
+}
