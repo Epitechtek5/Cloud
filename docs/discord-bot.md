@@ -24,19 +24,20 @@ Discord --POST (signed)--> API Gateway --OIDC--> discord-proxy --discord.command
    may lose its CPU.
 4. Anything else: `400`. No business logic, no grid write.
 
-If publishing fails the proxy answers `500` and Discord shows "The application did not respond": nothing is
-silently lost.
+If publishing fails the proxy answers `500` and Discord shows "This interaction failed": nothing is silently
+lost. ("The application did not respond" is what users see when the 3 s deadline is missed.)
 
 ## Infrastructure (`module "discord_proxy"` in `infra/serverless/functions.tf`)
 
-One `modules/function` instance, entry point `discordProxy`:
+One `modules/function` instance, entry point `discordProxy`, deployed only when `discord_proxy_enabled = true`
+in `<env>.tfvars` (off by default, see the bootstrap below):
 
 - Dedicated service account `fn-discord-proxy`: `secretmanager.secretAccessor` on `discord-public-key` only
   (injected as `DISCORD_PUBLIC_KEY`), `logging.logWriter` and `cloudtrace.agent`. Publishing on
   `discord.command` only, granted on that topic in `infra/serverless/pubsub.tf`
   (`publishers["discord.command"]`): it cannot publish anywhere else.
-- `roles/run.invoker` only for `var.gateway_invokers` (the API Gateway service account, #60); `allUsers` is
-  refused by a validation. Until the gateway exists the list is empty: nobody can invoke the function.
+- `roles/run.invoker` only for `var.gateway_invokers` (the API Gateway service account, #60); a validation only
+  accepts `serviceAccount:` members (no `allUsers`, users, groups or domains). Until the gateway exists the list is empty: nobody can invoke the function.
 - Timeout 10 s, scale to zero, at most 5 instances.
 
 The gateway route is `POST /discord/interactions`, backend `module.discord_proxy.uri` (output `discord_proxy_uri`), **without** JWT
@@ -53,10 +54,13 @@ For each environment:
    printf '%s' '<public key hex>' | gcloud secrets versions add discord-public-key --data-file=- --project <project_id>
    ```
 
-   The value never goes through Terraform state or GitHub.
-2. Set **Interactions Endpoint URL** to `https://<gateway host>/discord/interactions`. Discord sends a signed
+   The value never goes through Terraform state or GitHub. The first apply of an environment creates the
+   secret empty, and Cloud Run cannot start a revision on a secret without a version: this is why the proxy
+   is off by default.
+2. Set `discord_proxy_enabled = true` in `infra/serverless/<env>.tfvars` (PR), then deploy.
+3. Set **Interactions Endpoint URL** to `https://<gateway host>/discord/interactions`. Discord sends a signed
    PING and also checks that a badly signed request gets `401`: saving the URL only succeeds if both work.
-3. Register the slash commands (next issue: `/draw`, `/get`, `/snapshot`, `/admin`).
+4. Register the slash commands (next issue: `/draw`, `/get`, `/snapshot`, `/admin`).
 
 ## Tests
 

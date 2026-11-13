@@ -46,6 +46,6 @@ output "pubsub_dlq_subscriptions" {
 }
 
 output "discord_proxy_uri" {
-  value       = module.discord_proxy.uri
-  description = "Backend of the API Gateway route POST /discord/interactions (never given to Discord directly)"
+  value       = one(module.discord_proxy[*].uri)
+  description = "Backend of the API Gateway route POST /discord/interactions (never given to Discord directly). Null while discord_proxy_enabled is false"
 }

@@ -40,7 +40,8 @@ export const SCHEMAS = Object.freeze({
   "discord.command": object({
     interaction,
     command: str({ max: 32 }),
-    subcommand: nullable(str({ max: 32, optional: true })),
+    // "group subcommand" when the command has a subcommand group: 32 + 1 + 32.
+    subcommand: nullable(str({ max: 65, optional: true })),
     // Flattened options: { x: 10, y: 20, color: "#ff0000" }, user options are ids.
     options: record(),
     guildId: nullable(str({ pattern: SNOWFLAKE, optional: true })),

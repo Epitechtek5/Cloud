@@ -15,7 +15,7 @@ module "pubsub" {
   project_id = var.project_id
 
   publishers = {
-    "discord.command" = [module.discord_proxy.service_account_email]
+    "discord.command" = module.discord_proxy[*].service_account_email
   }
   push = {}
 

@@ -38,8 +38,12 @@ module "health" {
 # The public key comes from Secret Manager (`discord-public-key`, value added
 # out of band). No allUsers: only the API Gateway service account will be an
 # invoker (#60); until then the function cannot be called from outside.
+# Deployed only once `discord_proxy_enabled` is true in <env>.tfvars: Cloud Run
+# cannot start a revision whose secret has no version, and the first apply of
+# an environment creates the secret empty (see docs/discord-bot.md).
 module "discord_proxy" {
   source = "./modules/function"
+  count  = var.discord_proxy_enabled ? 1 : 0
 
   project_id  = var.project_id
   region      = var.region

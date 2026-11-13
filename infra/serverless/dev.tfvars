@@ -8,3 +8,6 @@ env        = "dev"
 # front only until the dev front is hosted (add its URL here and in the portal).
 # discord_client_id          = "1562814087900037260"
 auth_discord_redirect_uris = ["http://localhost:5173/"]
+
+# discord-proxy (#62), off until discord-public-key has a version (same reason).
+# discord_proxy_enabled = true
