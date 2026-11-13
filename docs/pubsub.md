@@ -1,7 +1,8 @@
 # Pub/Sub: topics, subscriptions and dead-letter topics
 
 Terraform module: `infra/serverless/modules/pubsub` (Terraform only, no console changes).
-The module has no provider/backend: the `infra/serverless` stack calls it (stack bootstrap issue).
+The module has no provider/backend: the `infra/serverless` stack calls it in `infra/serverless/pubsub.tf`,
+where each proxy and worker issue adds its own entries.
 
 ```hcl
 module "pubsub" {
@@ -15,8 +16,8 @@ module "pubsub" {
   # filled in once the workers exist; until then the subscriptions are pull ones
   push = {
     "pixel.draw" = {
-      endpoint        = module.draw_worker.url
-      service_account = module.draw_worker.invoker_service_account_email
+      endpoint        = module.draw_worker.uri
+      service_account = google_service_account.draw_push.email # also in the worker's invokers
     }
   }
 }
@@ -49,6 +50,9 @@ pull subscription `<topic>.dlq.sub` to inspect and replay failed messages.
 Push to the worker (Cloud Run function) with an OIDC token minted for a dedicated push service
 account; that account is the only one granted `run.invoker` on the worker, so the function is
 never publicly invocable. Without a `push` entry the subscription is a pull one.
+
+Workers are HTTP functions (`modules/function` without `pubsub_topic`): an Eventarc trigger would create its own
+subscription, without the retry policy and the dead-letter topic above.
 
 ## IAM
 

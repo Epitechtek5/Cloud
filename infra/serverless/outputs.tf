@@ -34,3 +34,13 @@ output "secret_ids" {
   value       = { for k, s in google_secret_manager_secret.this : k => s.id }
   description = "Secret Manager containers, keyed by secret id (values are added out of band)"
 }
+
+output "pubsub_topics" {
+  value       = module.pubsub.topics
+  description = "Pub/Sub topic ids by channel name"
+}
+
+output "pubsub_dlq_subscriptions" {
+  value       = module.pubsub.dlq_subscriptions
+  description = "Dead-letter pull subscriptions by channel name (inspect and replay failed messages)"
+}

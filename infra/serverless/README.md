@@ -17,6 +17,7 @@ of each environment: `scripts/bootstrap-state-bucket.sh` creates it (already don
 | `firestore.tf` | Firestore database, composite indexes, TTL and index overrides, security rules release |
 | `firestore.rules` | Browser security rules: read-only, own documents only (tests in `tests/firestore-rules`) |
 | `storage.tf` | Private `tiles` and `snapshots` buckets |
+| `pubsub.tf` | Topics, consumer subscriptions and dead-letter topics (`modules/pubsub`, see `docs/pubsub.md`) |
 | `outputs.tf` | `app_url` (deploy smoke test contract) and ids reused by the other issues |
 
 ## Function source
@@ -82,10 +83,14 @@ module "draw_worker" {
   docker_repository        = google_artifact_registry_repository.functions.id
   build_service_account_id = google_service_account.functions_build.id
 
-  pubsub_topic = google_pubsub_topic.pixel_draw.id                       # null for HTTP
-  secret_env   = { DISCORD_BOT_TOKEN = google_secret_manager_secret.this["discord-bot-token"].secret_id }
+  secret_env = { DISCORD_BOT_TOKEN = google_secret_manager_secret.this["discord-bot-token"].secret_id }
 }
 ```
+
+A worker is an HTTP function fed by its subscription in `pubsub.tf`: add a `push` entry for its channel in
+`module.pubsub` (endpoint `module.<worker>.uri`, OIDC service account listed in the worker's `invokers`). Do not
+use the module's `pubsub_topic` (Eventarc trigger) for a channel of the catalog: Eventarc creates its own
+subscription, without the retry policy and dead-letter topic of `modules/pubsub`.
 
 Each function gets its own service account `fn-<name>` (logs and trace writer, its secrets only). Grant it the
 rest (publish on a topic, Firestore, a bucket) next to the resource, using `module.<fn>.service_account_email`.
