@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { loadCommands, registerCommands, sameCommands, validateCommands } from "../../commands/register.js";
-import { parseColor } from "../../src/lib/colors.js";
+import { PALETTE, parseColor } from "../../src/lib/colors.js";
 import { GRID_SIZE } from "../../src/lib/events.js";
 
 const commands = await loadCommands();
@@ -65,7 +65,10 @@ test("x and y match the grid, color is a short string", () => {
     assert.equal(option.max_value, GRID_SIZE - 1);
   }
   const color = byName.draw.options.find((o) => o.name === "color");
-  assert.equal(color.max_length, 7);
+  // Long enough for "#RRGGBB" and every palette name ("lightgray" is 9).
+  const longestName = Math.max(...Object.keys(PALETTE).map((n) => n.length));
+  assert.equal(color.max_length, Math.max("#RRGGBB".length, longestName));
+  assert.equal(parseColor("lightgray"), PALETTE.lightgray);
   assert.equal(parseColor("#ff0000"), 0xff0000);
   assert.equal(parseColor("purple"), 0x820080);
 });
