@@ -68,6 +68,7 @@ No service account key exists: the credentials are short-lived tokens only.
 | `roles/storage.admin` | Buckets (frontend, function sources, data) and their objects |
 | `roles/pubsub.editor` | Pub/Sub topics, subscriptions and dead-letter topics |
 | `roles/datastore.owner` | Firestore database, indexes and fields |
+| `roles/apigateway.admin` | API Gateway: API, config and gateway. Holds no key creation, impersonation or project IAM permission |
 | `roles/firebaserules.admin` | Firestore security rules (ruleset and release) |
 | `roles/resourcemanager.projectIamAdmin`, condition `grantable-roles-only` | The stacks bind project roles to the service accounts they create (node pool, functions, build). The condition limits it to the roles of `deploy_grantable_roles`: it can never grant itself `roles/owner` |
 | custom `ghaDeployIamBindings` | `get/setIamPolicy` on the resources the stacks bind (secrets, Cloud Run, Artifact Registry, buckets, Pub/Sub, service accounts). Only reaches the resource itself |
