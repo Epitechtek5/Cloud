@@ -22,6 +22,21 @@ if [ ! -f "${LOCAL_VAR_FILE}" ]; then
   exit 1
 fi
 TF_VARS=(-var-file="${VAR_FILE}" -var-file="${LOCAL_VAR_FILE}")
+
+# The imports go to the backend `terraform init` configured last, whatever the
+# argument: refuse unless it is the one of ENV_NAME (backends/<env>.hcl).
+# Without this check, `import.sh prd` after an init on dev writes prd objects
+# into the dev state, and the next dev apply removes or moves them.
+hcl_value() { sed -n "s/^$1 *= *\"\([^\"]*\)\".*/\1/p" "backends/${ENV_NAME}.hcl" | tr -d '\r'; }
+init_value() { sed -n "s/^ *\"$1\": *\"\([^\"]*\)\".*/\1/p" .terraform/terraform.tfstate 2>/dev/null | head -n 1 | tr -d '\r'; }
+WANTED_BACKEND="$(hcl_value bucket)/$(hcl_value prefix)"
+CURRENT_BACKEND="$(init_value bucket)/$(init_value prefix)"
+if [ "${CURRENT_BACKEND}" != "${WANTED_BACKEND}" ]; then
+  echo "Backend mismatch: initialized on '${CURRENT_BACKEND}', ${ENV_NAME} needs '${WANTED_BACKEND}'. Run first:" >&2
+  echo "  terraform -chdir=infra/access init -reconfigure -backend-config=backends/${ENV_NAME}.hcl" >&2
+  exit 1
+fi
+
 tfvar() { sed -n "s/^$1 *= *\"\([^\"]*\)\".*/\1/p" "${VAR_FILE}"; }
 PROJECT_ID="$(tfvar project_id)"
 BUCKET="$(tfvar state_bucket)"
