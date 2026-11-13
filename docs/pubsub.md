@@ -51,8 +51,9 @@ Push to the worker (Cloud Run function) with an OIDC token minted for a dedicate
 account; that account is the only one granted `run.invoker` on the worker, so the function is
 never publicly invocable. Without a `push` entry the subscription is a pull one.
 
-Workers are HTTP functions (`modules/function` without `pubsub_topic`): an Eventarc trigger would create its own
-subscription, without the retry policy and the dead-letter topic above.
+Workers are HTTP functions (`modules/function`, which has no Eventarc trigger option on purpose: Eventarc would
+create its own subscription, without the retry policy and the dead-letter topic above). Full example in
+`infra/serverless/README.md`.
 
 ## IAM
 
