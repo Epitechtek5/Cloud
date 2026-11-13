@@ -25,6 +25,7 @@ locals {
     "roles/storage.admin"                  = "buckets (frontend, function sources, data) and their objects"
     "roles/pubsub.editor"                  = "Pub/Sub topics, subscriptions and dead-letter topics"
     "roles/datastore.owner"                = "Firestore database, indexes and fields"
+    "roles/apigateway.admin"               = "API Gateway: API, config and gateway (no key, impersonation or project IAM)"
     "roles/firebaserules.admin"            = "Firestore security rules (ruleset and release)"
   }
 
