@@ -17,6 +17,13 @@ Grille : `100 000 x 100 000` pixels (coordonnées `0..99999`), tuiles de `256 x 
 
 ## 1. HTTP via l'API Gateway (`Api`)
 
+> **Gateway (#60)** : `apiBase` est l'URL de l'API Gateway (`infra/serverless/README.md`, « API Gateway »). Elle vérifie le JWT
+> (`401` sinon) puis appelle la fonction avec son propre jeton ; la fonction lit l'utilisateur dans `X-Apigateway-Api-Userinfo`
+> (claims en JSON base64url, `sub` = id Discord). Les routes `POST /pixels` et `GET /pixels/{x}/{y}` répondent `501` tant que
+> le proxy de #66 n'est pas livré. Le CORS est répondu par chaque fonction (la gateway ne fait que transmettre `OPTIONS`).
+> Pas de limitation à la gateway (les quotas exigent une clé d'API par projet, inutilisable pour des utilisateurs anonymes) :
+> le rate limit métier est appliqué par le worker et revient en temps réel (section 3), pas en `429`.
+
 Toutes les routes : `Authorization: Bearer <jwt>` (émis par `POST /auth/discord`, voir
 [discord-activity.md](discord-activity.md)) et `X-Correlation-Id: <uuid>` (à propager dans les logs, l'événement et les traces).
 
@@ -29,7 +36,7 @@ Toutes les routes : `Authorization: Bearer <jwt>` (émis par `POST /auth/discord
 - Le proxy valide : JWT, `0 <= x,y < 100000`, `0 <= color <= 0xFFFFFF`, 1 à **256** pixels, `batchId` présent.
 - Il publie **un événement** `pixel.draw` (utilisateur = `sub` du JWT, `batchId`, `correlationId`) et répond `202 { "batchId" }`
   sans attendre. Aucun travail lourd, aucune écriture de grille.
-- `400` si invalide, `401` si JWT absent ou expiré, `429` si la gateway throttle.
+- `400` si invalide, `401` si JWT absent ou expiré (refusé par la gateway). Pas de `429` : voir l'encadré plus haut.
 - `batchId` est la clé d'**idempotence** : le worker ignore un lot déjà traité (le broker peut livrer deux fois).
 - Le rate limit métier (20 px/min par défaut, surcharge `/admin ratelimit`), la pause et la validation fine sont faits **par le
   worker**, pas par le proxy. Le résultat revient au front par le temps réel (section 3).
@@ -67,18 +74,25 @@ Authentification : `signInWithCustomToken(firebaseToken)`.
 ```
 
 Un document par pixel peint (pas de document « tuile » géant : pas de contention sur les tuiles chaudes, pas de limite de 1 Mio).
-Index composite `(tile ASC, t ASC)`, à créer en Terraform (`google_firestore_index`).
+Index composite `(tile ASC, t ASC)`, créé en Terraform (`google_firestore_index`, `infra/serverless/firestore.tf`). Le raisonnement
+complet (découpage, deltas, rasters, cache) est dans [data-model.md](data-model.md).
 
 Pour chaque tuile visible, le front :
 
 1. télécharge le raster et lit `X-Tile-Version` = `v` ;
-2. ouvre `pixels.where("tile","==","tx_ty").where("t",">", v).orderBy("t")`.
+2. ouvre `pixels.where("tile","==","tx_ty").where("t",">", v).orderBy("t").limit(65536)`.
+
+La **limite est obligatoire** : les règles refusent toute requête sur `pixels` sans `limit` ou avec plus de 65 536 (la taille
+d'une tuile, donc jamais atteinte par une requête de tuile). Elle plafonne ce qu'une requête abusive peut lire et facturer.
 
 Le premier snapshot contient seulement ce qui est plus récent que le raster, puis chaque changement arrive en delta : **pas de
-polling, aucun pixel perdu entre le raster et l'abonnement**. L'effacement (`/admin clear`) est un delta avec `c = -1`.
+polling, aucun pixel perdu entre le raster et l'abonnement**. L'effacement (`/admin clear`) vide toute la grille : ce n'est **pas** un delta par pixel
+(10^10 pixels), mais un signal (`pixel.processed` avec `cleared: true`) ; le front oublie ses deltas et recharge les rasters.
 
-> Conséquence : le front doit s'abonner **après** avoir chargé le raster (le mock actuel s'abonne avant). Le changement est
-> prévu dans la PR de l'adaptateur (`subscribeTile(tx, ty, cb, { since })`).
+> Conséquence : le front s'abonne **après** avoir chargé le raster. C'est fait dans le front et le mock :
+> `TileSource.loadTile` renvoie `{ rgba, version }` (`version` = `X-Tile-Version`, `0` pour une tuile vide) et
+> `RealtimeChannel.subscribeTile(tx, ty, cb, { since: version })` ne livre que les pixels `t > since`, puis les changements en direct.
+> L'adaptateur GCP devra respecter cette sémantique (`where("t", ">", since)`).
 
 ### État global : `session/state`
 
@@ -87,18 +101,26 @@ polling, aucun pixel perdu entre le raster et l'abonnement**. L'effacement (`/ad
 ### Par utilisateur : `users/{uid}` et `userEvents/{id}`
 
 - `users/{uid}` : `{ limit, used, windowStart }`, mis à jour par le worker à chaque lot ; le front affiche le quota restant.
-- `userEvents/{id}` : `{ uid, type: "rejected", reason: "rate_limited"|"paused"|"invalid", batchId, pixels: [...], t }`, écrit par le
-  worker pour les pixels refusés ; le front les écoute avec `where("uid","==",me).where("t",">", ouvertureDeLaPage)` et retire les
-  pixels optimistes concernés. Politique **TTL** (ex. 1 h) pour limiter le stockage.
+- `userEvents/{id}` : `{ uid, type: "rejected", reason: "rate_limited"|"paused"|"invalid", batchId, pixels: [...], t, expireAt }`, écrit par le
+  worker pour les pixels refusés ; le front les écoute avec `where("uid","==",me).where("t",">", ouvertureDeLaPage)` (index composite
+  `(uid, t)`) et retire les pixels optimistes concernés. Politique **TTL** sur `expireAt` (le worker met `t + 1 h`) pour limiter le stockage.
 
-### Règles de sécurité (esquisse)
+### Côté workers uniquement : `processedBatches/{batchId}`
 
-```
-match /pixels/{id}      { allow read: if request.auth != null; allow write: if false; }
-match /session/{id}     { allow read: if request.auth != null; allow write: if false; }
-match /users/{uid}      { allow read: if request.auth.uid == uid; allow write: if false; }
-match /userEvents/{id}  { allow read: if request.auth.uid == resource.data.uid; allow write: if false; }
-```
+`{ expireAt }`, créé dans la transaction qui applique un lot ; s'il existe déjà, le lot est ignoré (idempotence, Pub/Sub livre au
+moins une fois). TTL sur `expireAt`, au-delà de la rétention Pub/Sub (7 jours). Invisible pour le navigateur.
+
+### Règles de sécurité
+
+Déployées par Terraform depuis [`infra/serverless/firestore.rules`](../infra/serverless/firestore.rules), testées dans l'émulateur
+(`infra/serverless/tests/firestore-rules`, CI `ci-firestore-rules`). Résumé :
+
+- toute écriture est refusée, partout ;
+- « connecté » = custom token de `POST /auth/discord` (`sign_in_provider == "custom"`) ; les autres méthodes Firebase sont refusées ;
+- `pixels` : `get` si connecté, `list` si connecté **et** `limit <= 65536` ;
+- `session/state` : lecture si connecté (seul ce document) ;
+- `users/{uid}` et `userEvents` : uniquement ses propres documents (la requête doit filtrer sur `uid == moi`) ;
+- tout le reste (`processedBatches`, ...) : refusé.
 
 ## 4. Aperçu / mini-map (hors périmètre pour l'instant)
 
@@ -119,9 +141,16 @@ temps réel au pixel près (agrégat) ; à valider que c'est acceptable pour le 
   qui lit GCS (simple, mais la gateway GCP ne met pas en cache) ; (2) la même fonction derrière le CDN/hébergement du front avec
   `Cache-Control` (même origine donc pas de CORS, et les mappings Discord restent simples) ; (3) URLs signées courtes
   (`GET /tiles/{tx}/{ty}/url`, un aller-retour de plus). Recommandation : **(2)**.
+  Préparé par #70 sans être figé : le load balancer du front a un emplacement pour une route `/tiles/*`
+  (`local.frontend_tiles_backend` dans `infra/serverless/frontend.tf`) ; le choix final et la fonction relèvent de #68.
 - **B. Hébergement du front.** `deploy-env.yml` passe `dist/` à Terraform (`app_artifact_dir`) et attend un output `app_url`.
   Qui génère `/config.json` (`env`, `apiBase`, `discordClientId` de l'environnement, config Firebase) à côté de `dist/` ?
-- **C. Granularité des tuiles Firestore** (`tile` = 256x256 ici) et fréquence de régénération des rasters (par événement avec debounce, ou
-  périodique).
+  **Proposé par #70 (provisoire, à valider)** : la stack `infra/serverless` (Terraform) écrit `config.json` à partir des
+  tfvars de l'environnement, à côté du même `dist/` promu de dev à prd. Hébergement : bucket privé derrière un load
+  balancer HTTPS externe global avec Cloud CDN ; `app_url` est l'URL du front. Sans nom de domaine, l'hôte est
+  `<ip>.sslip.io` (voir `infra/serverless/README.md`, « Frontend hosting »). `apiBase` reste vide jusqu'à la gateway (#60).
+- **C. Granularité des tuiles Firestore et fréquence de régénération des rasters.** **DÉCISION PROVISOIRE (#59)**, à valider avec
+  Quentin : tuiles de **256x256** ; rasters régénérés **par événement, avec coalescence par tuile** (un seul rendu en cours par tuile,
+  aucun rendu pour une tuile calme). Détail et alternatives (512x512, Cloud Scheduler périodique) : [data-model.md](data-model.md) §2 et §4.
 - **D. Mini-map** : acceptable qu'elle soit approximative ?
 - **E. Firestore dans l'iframe Discord** : à valider dans une vraie Activity (voir `discord-activity.md` §4).

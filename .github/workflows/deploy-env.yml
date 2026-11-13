@@ -70,6 +70,24 @@ jobs:
             echo "::endgroup::"
           done
 
+      # Slash commands of the environment's Discord application (issue #63).
+      # The bot token is read from Secret Manager with the OIDC identity of the
+      # environment: it is never stored in GitHub, and masked in case anything
+      # echoes it. Skipped until the environment variables DISCORD_APPLICATION_ID
+      # (and DISCORD_GUILD_ID for guild commands) are set on the GitHub Environment.
+      - name: Register the Discord slash commands
+        if: vars.DISCORD_APPLICATION_ID != ''
+        working-directory: app/functions
+        env:
+          APPLICATION_ID: ${{ vars.DISCORD_APPLICATION_ID }}
+          GUILD_ID: ${{ vars.DISCORD_GUILD_ID }}
+        run: |
+          set -euo pipefail
+          token="$(gcloud secrets versions access latest --secret=discord-bot-token --project="${GOOGLE_CLOUD_PROJECT:?}")"
+          echo "::add-mask::$token"
+          DISCORD_BOT_TOKEN="$token" node commands/register.js \
+            --application-id "$APPLICATION_ID" ${GUILD_ID:+--guild-id "$GUILD_ID"}
+
       # Contract: the serverless stack exposes an `app_url` output. Skipped
       # while infra/serverless has no .tf files (same rule as the apply loop).
       - name: Smoke tests
@@ -82,3 +100,10 @@ jobs:
           echo "Checking $url"
           curl --fail --silent --show-error --location \
             --retry 5 --retry-delay 5 --retry-all-errors "$url" > /dev/null
+
+          # The gateway end to end: gateway -> ID token of its service account
+          # -> private function. A new config can take a moment to be served.
+          gateway=$(terraform -chdir=infra/serverless output -raw gateway_url)
+          echo "Checking $gateway/health"
+          curl --fail --silent --show-error \
+            --retry 10 --retry-delay 6 --retry-all-errors "$gateway/health" > /dev/null

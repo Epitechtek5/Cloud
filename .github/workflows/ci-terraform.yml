@@ -20,15 +20,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The wrapper is a Node script (#!/usr/bin/env node): the self-hosted
+      # runner image has no node on PATH, so terraform would exit 127.
       - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
 
       - name: terraform fmt
         run: terraform fmt -check -recursive -diff infra
 
       - name: terraform validate
         run: |
-          # foundation and serverless must exist; access is optional.
-          for stack in foundation serverless access; do
+          # foundation, serverless and billing must exist; access is optional.
+          for stack in foundation serverless billing access; do
             if [ "$stack" = "access" ] && ! ls infra/access/*.tf >/dev/null 2>&1; then
               echo "::notice::infra/access has no .tf files, skipping"
               continue
@@ -36,6 +40,16 @@ jobs:
             echo "::group::validate $stack"
             terraform -chdir=infra/$stack init -backend=false -input=false
             terraform -chdir=infra/$stack validate
+            echo "::endgroup::"
+          done
+
+      - name: terraform test (modules)
+        run: |
+          for dir in infra/*/modules/*/; do
+            ls "$dir"tests/*.tftest.hcl >/dev/null 2>&1 || continue
+            echo "::group::test $dir"
+            terraform -chdir="$dir" init -backend=false -input=false
+            terraform -chdir="$dir" test
             echo "::endgroup::"
           done
 
@@ -95,7 +109,7 @@ jobs:
       # Read-only service account, not bound to a GitHub Environment so a PR
       # plan never waits for the prd reviewers. Without an Environment the
       # per-env values are repository variables suffixed _DEV / _PRD
-      # (written by scripts/bootstrap-wif.sh).
+      # (outputs of infra/access, see scripts/publish-github-variables.sh).
       - if: steps.stack.outputs.found == 'true'
         uses: google-github-actions/auth@v2
         with:

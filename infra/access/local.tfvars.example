@@ -1,0 +1,14 @@
+# Copy to dev.local.tfvars / prd.local.tfvars (git-ignored): the repository is
+# public, so the team addresses and the billing account stay out of it.
+
+# Google accounts of the team, granted Owner on the project. Removing a line
+# and applying revokes that person's access.
+team_members = {
+  alice = "alice@example.com"
+  bob   = "bob@example.com"
+}
+
+# prd.local.tfvars only, and only if you are Billing Account Administrator:
+# grants the instructor billing viewer. Leave it out otherwise.
+# gcloud billing projects describe <project_id> --format='value(billingAccountName)'
+# billing_account = "012345-6789AB-CDEF01"
