@@ -13,13 +13,13 @@ Scope demandé : `identify` uniquement. Il y a **une application Discord par env
 
 ## 1. Réglages du Developer Portal (à faire une fois, par application dev/prd)
 
-1. **OAuth2 → Redirects** : ajouter l'URL exacte du front de chaque environnement (et `http://localhost:5173/` pour le dev local). Elle doit être identique au `redirect_uri` envoyé par le front (origine + chemin).
+1. **OAuth2 → Redirects** : ajouter l'URL exacte du front de chaque environnement (et `http://localhost:5173/` pour le dev local). Elle doit être identique au `redirect_uri` envoyé par le front (origine + chemin). C'est l'output `app_url` de la stack `infra/serverless` (`terraform -chdir=infra/serverless output -raw app_url`, avec le `/` final). Sans nom de domaine, son hôte (`<ip>.sslip.io`) change si l'environnement est détruit puis recréé : refaire alors les réglages 1 et 3.
 2. **Activities → Settings** : activer les Activities.
 3. **Activities → URL Mappings** (chaque hôte externe que le front appelle doit y figurer, car la CSP de l'iframe n'autorise que le proxy Discord) :
 
 | Prefix | Target (sans `https://`) | Usage |
 |---|---|---|
-| `/` | hôte d'hébergement du front (CDN) | pages et assets |
+| `/` | hôte d'hébergement du front (CDN), l'hôte de `app_url` | pages et assets |
 | `/api` | hôte de l'API Gateway | `POST /auth/discord`, dessin, etc. |
 | `/firestore` | `firestore.googleapis.com` | temps réel (listeners) |
 | `/identitytoolkit` | `identitytoolkit.googleapis.com` | connexion Firebase par custom token |
@@ -56,7 +56,17 @@ Réponse 200 :
 ```
 
 - `discordAccessToken` : **uniquement si `activity: true`**. Il sert au front pour `sdk.authenticate()` et n'est jamais stocké. Sans lui, l'Activity échoue.
-- Erreur : 4xx/5xx sans détail sensible. Le front affiche « Login failed (HTTP n) ».
+- `firebaseToken` : custom token Firebase (`uid` = id Discord), **seulement si** l'option
+  `auth_discord_firebase_custom_token` est activée en Terraform (désactivée par défaut, voir #67).
+- Erreur : 4xx/5xx sans détail sensible, corps `{ "error": "<code>" }`. Le front affiche « Login failed (HTTP n) ».
+  `400 invalid_request` (corps invalide), `400 invalid_redirect_uri` (absent de l'allow-list), `401 invalid_grant`
+  (code refusé par Discord : expiré, déjà utilisé, mauvais verifier), `502 upstream_error` (Discord ou Google indisponible).
+
+Implémentation : fonction `auth-discord` (`app/functions/src/auth-discord`, `infra/serverless/auth_discord.tf`).
+Le JWT est signé en **ES256** (clé privée `jwt-signing-key`) ; claims `iss`, `aud`, `sub` (id Discord), `username`,
+`iat`, `exp`, `jti`. La même fonction sert la clé publique (JWKS) sur `GET`, que la gateway utilise pour vérifier
+la signature (`x-google-jwks_uri`). Le `redirectUri` doit figurer **exactement** dans `auth_discord_redirect_uris`
+(par environnement), dont les origines servent aussi d'allow-list CORS.
 
 Le front envoie ensuite `Authorization: Bearer <token>` sur tous les appels ; la gateway valide le JWT. Il propage aussi `X-Correlation-Id`.
 

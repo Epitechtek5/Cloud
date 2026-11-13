@@ -81,8 +81,10 @@ d'une tuile, donc jamais atteinte par une requête de tuile). Elle plafonne ce q
 Le premier snapshot contient seulement ce qui est plus récent que le raster, puis chaque changement arrive en delta : **pas de
 polling, aucun pixel perdu entre le raster et l'abonnement**. L'effacement (`/admin clear`) est un delta avec `c = -1`.
 
-> Conséquence : le front doit s'abonner **après** avoir chargé le raster (le mock actuel s'abonne avant). Le changement est
-> prévu dans la PR de l'adaptateur (`subscribeTile(tx, ty, cb, { since })`).
+> Conséquence : le front s'abonne **après** avoir chargé le raster. C'est fait dans le front et le mock :
+> `TileSource.loadTile` renvoie `{ rgba, version }` (`version` = `X-Tile-Version`, `0` pour une tuile vide) et
+> `RealtimeChannel.subscribeTile(tx, ty, cb, { since: version })` ne livre que les pixels `t > since`, puis les changements en direct.
+> L'adaptateur GCP devra respecter cette sémantique (`where("t", ">", since)`).
 
 ### État global : `session/state`
 
@@ -131,8 +133,14 @@ temps réel au pixel près (agrégat) ; à valider que c'est acceptable pour le 
   qui lit GCS (simple, mais la gateway GCP ne met pas en cache) ; (2) la même fonction derrière le CDN/hébergement du front avec
   `Cache-Control` (même origine donc pas de CORS, et les mappings Discord restent simples) ; (3) URLs signées courtes
   (`GET /tiles/{tx}/{ty}/url`, un aller-retour de plus). Recommandation : **(2)**.
+  Préparé par #70 sans être figé : le load balancer du front a un emplacement pour une route `/tiles/*`
+  (`local.frontend_tiles_backend` dans `infra/serverless/frontend.tf`) ; le choix final et la fonction relèvent de #68.
 - **B. Hébergement du front.** `deploy-env.yml` passe `dist/` à Terraform (`app_artifact_dir`) et attend un output `app_url`.
   Qui génère `/config.json` (`env`, `apiBase`, `discordClientId` de l'environnement, config Firebase) à côté de `dist/` ?
+  **Proposé par #70 (provisoire, à valider)** : la stack `infra/serverless` (Terraform) écrit `config.json` à partir des
+  tfvars de l'environnement, à côté du même `dist/` promu de dev à prd. Hébergement : bucket privé derrière un load
+  balancer HTTPS externe global avec Cloud CDN ; `app_url` est l'URL du front. Sans nom de domaine, l'hôte est
+  `<ip>.sslip.io` (voir `infra/serverless/README.md`, « Frontend hosting »). `apiBase` reste vide jusqu'à la gateway (#60).
 - **C. Granularité des tuiles Firestore et fréquence de régénération des rasters.** **DÉCISION PROVISOIRE (#59)**, à valider avec
   Quentin : tuiles de **256x256** ; rasters régénérés **par événement, avec coalescence par tuile** (un seul rendu en cours par tuile,
   aucun rendu pour une tuile calme). Détail et alternatives (512x512, Cloud Scheduler périodique) : [data-model.md](data-model.md) §2 et §4.

@@ -15,6 +15,8 @@ import { tileKey, tileOfPixel } from '../canvas/geometry';
 import { PALETTE } from '../canvas/palette';
 
 const SEED_TS = Date.UTC(2026, 0, 1);
+/** Version of a seeded raster: later than every seeded pixel, earlier than anything drawn live. */
+const SEED_VERSION = SEED_TS + 86_400_000;
 
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
@@ -87,6 +89,11 @@ export function createMockBackend({ latency = 60, botRate = 25, rateLimit }: Moc
       });
     });
 
+  // Strictly increasing, like a server timestamp: two pixels never share a `ts`, so "newer than
+  // the raster version" can neither miss a pixel nor depend on the clock resolution.
+  let lastTs = 0;
+  const nextTs = (): number => (lastTs = Math.max(Date.now(), lastTs + 1));
+
   function commit(d: PixelDelta): void {
     const key = tileKey(tileOfPixel(d.x), tileOfPixel(d.y));
     let m = live.get(key);
@@ -106,7 +113,7 @@ export function createMockBackend({ latency = 60, botRate = 25, rateLimit }: Moc
           y: ty * TILE_SIZE + Math.floor(Math.random() * TILE_SIZE),
           color: PALETTE[Math.floor(Math.random() * PALETTE.length)]!,
           author: 'bot-' + (1 + Math.floor(Math.random() * 5)),
-          ts: Date.now(),
+          ts: nextTs(),
         });
       }
     }, 100);
@@ -116,28 +123,45 @@ export function createMockBackend({ latency = 60, botRate = 25, rateLimit }: Moc
     tiles: {
       async loadTile(tx, ty, signal) {
         await sleep(latency * (0.5 + Math.random()), signal);
+        // The raster and its version are computed at the same instant (like the real tile worker):
+        // the version is the newest pixel the raster includes.
         const raster = generateTile(tx, ty) ?? null;
         const overlay = live.get(tileKey(tx, ty));
-        if (!overlay || overlay.size === 0) return raster;
+        if (!overlay || overlay.size === 0) return { rgba: raster, version: raster ? SEED_VERSION : 0 };
         const out = raster ?? new Uint8ClampedArray(TILE_SIZE * TILE_SIZE * 4);
+        let version = SEED_VERSION;
         for (const d of overlay.values()) {
+          version = Math.max(version, d.ts);
           const o = ((d.y - ty * TILE_SIZE) * TILE_SIZE + (d.x - tx * TILE_SIZE)) * 4;
           out[o] = (d.color >> 16) & 0xff;
           out[o + 1] = (d.color >> 8) & 0xff;
           out[o + 2] = d.color & 0xff;
           out[o + 3] = 255;
         }
-        return out;
+        return { rgba: out, version };
       },
     },
     realtime: {
-      subscribeTile(tx, ty, cb) {
+      subscribeTile(tx, ty, cb, { since }) {
         const key = tileKey(tx, ty);
+        let active = true;
+        const listener = (d: PixelDelta[]) => {
+          if (active) cb(d);
+        };
         let set = tileSubs.get(key);
         if (!set) tileSubs.set(key, (set = new Set()));
-        set.add(cb);
+        set.add(listener);
+        // Like the first snapshot of a Firestore query (`t > since`): what changed after the
+        // raster, delivered asynchronously. It is read when delivered, so it is never older
+        // than a live delta that already came through `listener`.
+        queueMicrotask(() => {
+          if (!active) return;
+          const backlog = [...(live.get(key)?.values() ?? [])].filter((d) => d.ts > since).sort((a, b) => a.ts - b.ts);
+          if (backlog.length > 0) cb(backlog);
+        });
         return () => {
-          set.delete(cb);
+          active = false;
+          set.delete(listener);
           if (set.size === 0) tileSubs.delete(key);
         };
       },
@@ -166,7 +190,7 @@ export function createMockBackend({ latency = 60, botRate = 25, rateLimit }: Moc
           const refused = pixels.slice(allowed);
           for (const p of accepted) {
             sent.push(Date.now());
-            commit({ x: p.x, y: p.y, color: p.color, author: 'me', ts: Date.now() });
+            commit({ x: p.x, y: p.y, color: p.color, author: 'me', ts: nextTs() });
           }
           if (refused.length) emitUser({ type: 'rejected', reason: 'rate_limited', batchId, pixels: refused });
           emitQuota();

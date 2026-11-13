@@ -1,0 +1,7 @@
+[
+  {
+    "id": "GHSA-mrhx-c7xc-m3w5",
+    "justification": "Not reachable. The advisory targets the zod v4 array parser ($ZodArray / handleArrayResult, under zod/v4/core). Our only consumer is @discord/embedded-app-sdk, which pins zod ^3.9.8, imports the root 'zod' entry point (v3 API, installed 3.25.76) and never loads zod/v4; the production bundle contains none of that v4 code (checked: 0 occurrences of handleArrayResult, $ZodArray, zod/v4). The patched range (>= 4.6.6) is a major upgrade the SDK does not support, so no fix is available. Remove this exception once the SDK ships a zod release outside the affected range.",
+    "expires": "2026-12-31"
+  }
+]

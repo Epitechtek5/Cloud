@@ -1,0 +1,10 @@
+# Copy to dev.local.tfvars / prd.local.tfvars (git-ignored): the repository is
+# public, so the billing account and the team addresses stay out of it.
+
+# gcloud billing projects describe <project_id> --format='value(billingAccountName)'
+billing_account = "012345-6789AB-CDEF01"
+
+# 1 to 5 addresses, one Cloud Monitoring email channel each.
+notification_emails = [
+  "someone@example.com",
+]

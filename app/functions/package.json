@@ -2,12 +2,13 @@
   "name": "functions",
   "version": "0.0.0",
   "private": true,
-  "description": "Cloud Functions (placeholder base, no dependencies yet)",
+  "description": "Cloud Run functions of the pixel canvas (no runtime dependency)",
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "lint": "node --check src/index.js",
+    "lint": "for f in $(find src test -name '*.js'); do node --check \"$f\" || exit 1; done",
     "test": "node --test",
-    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true});require('fs').cpSync('src','dist',{recursive:true});require('fs').copyFileSync('package.json','dist/package.json')\""
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true});require('fs').cpSync('src','dist',{recursive:true});require('fs').copyFileSync('package.json','dist/package.json')\"",
+    "gcp-build": ""
   }
 }
