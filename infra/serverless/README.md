@@ -109,15 +109,15 @@ release); sessions signed with the old key (10 min at most) are then rejected an
 
 ## Deployer permissions
 
-`roles/editor` cannot set IAM policies, and this stack creates IAM bindings. `scripts/bootstrap-wif.sh` gives the
-deploy service account (`gha-deploy`) two extra roles, on purpose narrower than `roles/iam.securityAdmin`:
+`roles/editor` cannot set IAM policies, and this stack creates IAM bindings. `infra/access` gives the deploy
+service account (`gha-deploy`) two extra roles, on purpose narrower than `roles/iam.securityAdmin`:
 
 - `roles/resourcemanager.projectIamAdmin` with a condition: it may only grant or revoke the roles of
-  `DEPLOY_GRANTABLE_ROLES`, so it can never give itself `roles/owner`.
+  `deploy_grantable_roles` (`infra/access/roles.tf`), so it can never give itself `roles/owner`.
 - The custom role `ghaDeployIamBindings`: `get/setIamPolicy` on secrets, Cloud Run services, Artifact Registry
   repositories, buckets, Pub/Sub topics and subscriptions, and service accounts.
 
 A new **project-level** role in a stack (for example `roles/datastore.user`) must first be added to
-`DEPLOY_GRANTABLE_ROLES`, then the script re-run on dev and prd, otherwise the apply fails with `403`. Prefer a
+`deploy_grantable_roles`, then `infra/access` applied on dev and prd, otherwise the apply fails with `403`. Prefer a
 binding on the resource itself (topic, secret, bucket), which needs no change. Never add `owner`, `editor`, an
 `*Admin` role or `iam.serviceAccountTokenCreator` to that list.

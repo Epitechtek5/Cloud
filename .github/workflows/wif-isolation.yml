@@ -1,0 +1,63 @@
+name: wif-isolation
+
+# Manual check of the Workload Identity Federation scoping (infra/access):
+# a job of the `dev` GitHub Environment gets the dev deploy account, and is
+# refused both prd accounts. Read-only: the only GCP call is a token exchange.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PRD_DEPLOY_SA: gha-deploy@huiledecloud-cloudnative-prd.iam.gserviceaccount.com
+
+jobs:
+  dev-job:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: dev
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      # token_format makes the action impersonate the account now: without it
+      # the action only writes a credentials file and nothing is checked.
+      - name: dev -> dev deploy account (must succeed)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          token_format: access_token
+          create_credentials_file: false
+
+      - name: dev -> prd deploy account (must fail)
+        id: prd_deploy
+        continue-on-error: true
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER_PRD }}
+          service_account: ${{ env.PRD_DEPLOY_SA }}
+          token_format: access_token
+          create_credentials_file: false
+
+      - name: dev -> prd plan account (must fail)
+        id: prd_plan
+        continue-on-error: true
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER_PRD }}
+          service_account: ${{ vars.GCP_PLAN_SERVICE_ACCOUNT_PRD }}
+          token_format: access_token
+          create_credentials_file: false
+
+      - name: Check the refusals
+        env:
+          PRD_DEPLOY: ${{ steps.prd_deploy.outcome }}
+          PRD_PLAN: ${{ steps.prd_plan.outcome }}
+        run: |
+          echo "dev -> prd deploy: $PRD_DEPLOY, dev -> prd plan: $PRD_PLAN (expected: failure)"
+          if [ "$PRD_DEPLOY" != "failure" ] || [ "$PRD_PLAN" != "failure" ]; then
+            echo "::error::A dev job could impersonate a prd service account"
+            exit 1
+          fi

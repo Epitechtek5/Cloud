@@ -39,14 +39,14 @@ closed by the (empty) authorized networks.
 
 | Identity | IAM role | What it can do in the cluster |
 | --- | --- | --- |
-| `gha-deploy` (deploy, destroy) | `roles/editor` + custom role `ghaDeployK8sRbac` | install the charts, which create ClusterRoles, Roles and their bindings |
+| `gha-deploy` (deploy, destroy) | `roles/container.clusterAdmin` + `roles/container.developer` + custom role `ghaDeployK8sRbac` | create the cluster, install the charts, which create ClusterRoles, Roles and their bindings |
 | `gha-plan` (PR plan) | `roles/viewer` | read namespaces, policies and the Helm releases, never the Secrets |
 
-On GKE, `roles/editor` cannot create Kubernetes Roles and bindings. `roles/container.admin` could, but it also
-carries impersonation (`container.clusters.impersonate`), token creation for Kubernetes service accounts and CSR
-approval. The custom role `ghaDeployK8sRbac` (`scripts/bootstrap-wif.sh`) holds only the 16 permissions on
+On GKE, `roles/container.developer` cannot create Kubernetes Roles and bindings. `roles/container.admin` could, but
+it also carries impersonation (`container.clusters.impersonate`), token creation for Kubernetes service accounts and
+CSR approval. The custom role `ghaDeployK8sRbac` (`infra/access/roles.tf`) holds only the 16 permissions on
 (Cluster)Roles and (Cluster)RoleBindings. `bind` and `escalate` are part of them: without them no chart could bind
-a role with more rights than `roles/editor` gives. In practice the deploy account can give itself any right
+a role with more rights than `roles/container.developer` gives. In practice the deploy account can give itself any right
 inside the runners cluster, and nothing outside it; the cluster only hosts the runners.
 
 Helm records its releases in **ConfigMaps** (`helm_driver = "configmap"`), not in Secrets: that is what lets the
@@ -63,8 +63,8 @@ Runners) before being uninstalled itself. No registration is left behind.
 
 1. **Create a GitHub App** on the organization (Repository permissions: Actions read, Administration read and
    write, Metadata read), install it on this repository and download its private key.
-2. **Give the deploy account the Kubernetes RBAC role** (`ghaDeployK8sRbac`) by running
-   `scripts/bootstrap-wif.sh` again on the project (Owner needed). The `container` and `cloudresourcemanager` APIs
+2. **Give the deploy account the Kubernetes RBAC role** (`ghaDeployK8sRbac`) by applying
+   `infra/access` on the project (Owner needed, see `infra/access/README.md`). The `container` and `cloudresourcemanager` APIs
    are enabled by Terraform (`infra/foundation/apis.tf`).
 3. **Deploy** through the usual release flow. The cluster only exists in dev (`runners_enabled = true` in
    `dev.tfvars`): the runners are a single scale set, so a prd cluster would be billed for nothing.
