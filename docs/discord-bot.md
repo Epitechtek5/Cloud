@@ -27,34 +27,19 @@ Discord --POST (signed)--> API Gateway --OIDC--> discord-proxy --discord.command
 If publishing fails the proxy answers `500` and Discord shows "The application did not respond": nothing is
 silently lost.
 
-## Infrastructure (`infra/serverless/modules/discord_proxy`)
+## Infrastructure (`module "discord_proxy"` in `infra/serverless/functions.tf`)
 
-- Dedicated service account: `secretmanager.secretAccessor` on the public key secret only, `logging.logWriter`
-  and `cloudtrace.agent`. Publishing on `discord.command` is granted by the Pub/Sub module: pass
-  `module.discord_proxy.service_account_email` in `publishers["discord.command"]`.
-- `roles/run.invoker` only for `invoker_members` (the API Gateway service account). `allUsers` is refused by
-  a validation: the function is not invokable outside the gateway.
-- Timeout 10 s, scale to zero, `max_instances` 5 by default.
+One `modules/function` instance, entry point `discordProxy`:
 
-Wiring in the `infra/serverless` stack (once the stack and the gateway exist, #57 and #60):
+- Dedicated service account `fn-discord-proxy`: `secretmanager.secretAccessor` on `discord-public-key` only
+  (injected as `DISCORD_PUBLIC_KEY`), `logging.logWriter` and `cloudtrace.agent`. Publishing on
+  `discord.command` only, granted on that topic in `infra/serverless/pubsub.tf`
+  (`publishers["discord.command"]`): it cannot publish anywhere else.
+- `roles/run.invoker` only for `var.gateway_invokers` (the API Gateway service account, #60); `allUsers` is
+  refused by a validation. Until the gateway exists the list is empty: nobody can invoke the function.
+- Timeout 10 s, scale to zero, at most 5 instances.
 
-```hcl
-module "discord_proxy" {
-  source          = "./modules/discord_proxy"
-  project_id      = var.project_id
-  region          = var.region
-  source_bucket   = google_storage_bucket.sources.name
-  source_object   = google_storage_bucket_object.functions.name
-  invoker_members = ["serviceAccount:${google_service_account.gateway.email}"]
-}
-
-module "pubsub" {
-  # ...
-  publishers = { "discord.command" = [module.discord_proxy.service_account_email] }
-}
-```
-
-The gateway route is `POST /discord/interactions`, backend `module.discord_proxy.url`, **without** JWT
+The gateway route is `POST /discord/interactions`, backend `module.discord_proxy.uri` (output `discord_proxy_uri`), **without** JWT
 authentication at the gateway (Discord does not send one): the signature check is the authentication.
 
 ## One Discord application per environment

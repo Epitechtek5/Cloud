@@ -14,8 +14,10 @@ module "pubsub" {
 
   project_id = var.project_id
 
-  publishers = {}
-  push       = {}
+  publishers = {
+    "discord.command" = [module.discord_proxy.service_account_email]
+  }
+  push = {}
 
   # The Pub/Sub service agent (DLQ IAM) only exists once the API is enabled.
   depends_on = [google_project_service.this]

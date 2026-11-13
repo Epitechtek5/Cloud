@@ -53,3 +53,14 @@ variable "firebase_api_key" {
   default     = ""
   description = "Firebase Web API key of this project (a public identifier, not a secret). Empty until the Firebase web app exists"
 }
+
+variable "gateway_invokers" {
+  type        = list(string)
+  default     = []
+  description = "Members allowed to invoke the public proxies: the API Gateway service account (#60). Never allUsers"
+
+  validation {
+    condition     = alltrue([for m in var.gateway_invokers : !contains(["allUsers", "allAuthenticatedUsers"], m)])
+    error_message = "The proxies must not be publicly invokable: only the API Gateway service account."
+  }
+}
