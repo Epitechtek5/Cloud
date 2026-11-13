@@ -20,7 +20,7 @@ Scope demandé : `identify` uniquement. Il y a **une application Discord par env
 | Prefix | Target (sans `https://`) | Usage |
 |---|---|---|
 | `/` | hôte d'hébergement du front (CDN), l'hôte de `app_url` | pages et assets |
-| `/api` | hôte de l'API Gateway | `POST /auth/discord`, dessin, etc. |
+| `/api` | hôte de l'API Gateway (output `gateway_url`, sans `https://`) | `POST /auth/discord`, dessin, etc. |
 | `/firestore` | `firestore.googleapis.com` | temps réel (listeners) |
 | `/identitytoolkit` | `identitytoolkit.googleapis.com` | connexion Firebase par custom token |
 | `/securetoken` | `securetoken.googleapis.com` | rafraîchissement du token Firebase |
@@ -63,9 +63,10 @@ Réponse 200 :
   (code refusé par Discord : expiré, déjà utilisé, mauvais verifier), `502 upstream_error` (Discord ou Google indisponible).
 
 Implémentation : fonction `auth-discord` (`app/functions/src/auth-discord`, `infra/serverless/auth_discord.tf`).
-Le JWT est signé en **ES256** (clé privée `jwt-signing-key`) ; claims `iss`, `aud`, `sub` (id Discord), `username`,
-`iat`, `exp`, `jti`. La même fonction sert la clé publique (JWKS) sur `GET`, que la gateway utilise pour vérifier
-la signature (`x-google-jwks_uri`). Le `redirectUri` doit figurer **exactement** dans `auth_discord_redirect_uris`
+Le JWT est signé en **RS256 par le compte de service de la fonction** (IAM Credentials `signJwt`), sans clé à nous ;
+claims `iss`, `aud`, `sub` (id Discord), `username`, `iat`, `exp`, `jti`. La gateway le vérifie avec les clés
+publiques que Google publie pour ce compte (`x-google-jwks_uri`, voir `infra/serverless/README.md`, « API Gateway »).
+Le `redirectUri` doit figurer **exactement** dans `auth_discord_redirect_uris`
 (par environnement), dont les origines servent aussi d'allow-list CORS.
 
 Le front envoie ensuite `Authorization: Bearer <token>` sur tous les appels ; la gateway valide le JWT. Il propage aussi `X-Correlation-Id`.

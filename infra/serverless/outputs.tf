@@ -10,9 +10,14 @@ output "frontend_ip" {
   description = "IP of the frontend load balancer (A record of frontend_domain when a domain is used)"
 }
 
-output "health_url" {
-  value       = module.health.uri
-  description = "Liveness function, public until the API Gateway lands (#60)"
+output "gateway_url" {
+  value       = local.gateway_url
+  description = "Public HTTPS URL of the API Gateway: the apiBase of the front, and the host of the Discord Activity URL mapping /api"
+}
+
+output "discord_interactions_url" {
+  value       = "${local.gateway_url}/discord/interactions"
+  description = "Interactions Endpoint URL to paste in the Discord Developer Portal (General Information)"
 }
 
 output "functions_source_bucket" {
@@ -47,5 +52,5 @@ output "pubsub_dlq_subscriptions" {
 
 output "discord_proxy_uri" {
   value       = one(module.discord_proxy[*].uri)
-  description = "Backend of the API Gateway route POST /discord/interactions (never given to Discord directly). Null while discord_proxy_enabled is false"
+  description = "Private backend of the gateway route POST /discord/interactions (it answers 403 to anyone but the gateway). Null while discord_proxy_enabled is false"
 }

@@ -36,8 +36,8 @@ in `<env>.tfvars` (off by default, see the bootstrap below):
   (injected as `DISCORD_PUBLIC_KEY`), `logging.logWriter` and `cloudtrace.agent`. Publishing on
   `discord.command` only, granted on that topic in `infra/serverless/pubsub.tf`
   (`publishers["discord.command"]`): it cannot publish anywhere else.
-- `roles/run.invoker` only for `var.gateway_invokers` (the API Gateway service account, #60); a validation only
-  accepts `serviceAccount:` members (no `allUsers`, users, groups or domains). Until the gateway exists the list is empty: nobody can invoke the function.
+- `roles/run.invoker` only for `local.gateway_invokers`, the API Gateway service account (#60), never `allUsers`:
+  the function URL answers `403` to anyone else.
 - Timeout 10 s, scale to zero, at most 5 instances.
 
 The gateway route is `POST /discord/interactions`, backend `module.discord_proxy.uri` (output `discord_proxy_uri`), **without** JWT
@@ -58,7 +58,8 @@ For each environment:
    secret empty, and Cloud Run cannot start a revision on a secret without a version: this is why the proxy
    is off by default.
 2. Set `discord_proxy_enabled = true` in `infra/serverless/<env>.tfvars` (PR), then deploy.
-3. Set **Interactions Endpoint URL** to `https://<gateway host>/discord/interactions`. Discord sends a signed
+3. Set **Interactions Endpoint URL** to the output `discord_interactions_url`
+   (`terraform -chdir=infra/serverless output -raw discord_interactions_url`). Discord sends a signed
    PING and also checks that a badly signed request gets `401`: saving the URL only succeeds if both work.
 4. Register the slash commands (next section).
 

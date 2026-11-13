@@ -1,11 +1,8 @@
 # Every function of the application is an instance of modules/function. The
 # business functions (proxies, workers) are added by their own issues.
 
-# Liveness endpoint behind `app_url`, checked by the deploy smoke test.
-# Temporary exception to "no function reachable from the internet": until the
-# API Gateway exists (#60) the smoke test has nothing else to call, and this
-# function only returns "ok". #60 moves `app_url` to the gateway and drops
-# `allUsers` here.
+# Liveness endpoint behind GET /health of the API Gateway, checked by the
+# deploy smoke test. Private like every function: only the gateway can call it.
 module "health" {
   source = "./modules/function"
 
@@ -22,10 +19,11 @@ module "health" {
   build_service_account_id = google_service_account.functions_build.id
 
   ingress       = "ALLOW_ALL"
-  invokers      = ["allUsers"]
+  invokers      = local.gateway_invokers
   max_instances = 1
 
   depends_on = [
+    google_service_account.gateway,
     google_project_iam_member.functions_build_logs,
     google_project_iam_member.functions_build_sources,
     google_artifact_registry_repository_iam_member.functions_build,
@@ -36,8 +34,7 @@ module "health" {
 # PING, publishes slash commands on `discord.command` (publisher binding in
 # pubsub.tf) and returns a deferred response. Code: app/functions/src/discord.
 # The public key comes from Secret Manager (`discord-public-key`, value added
-# out of band). No allUsers: only the API Gateway service account will be an
-# invoker (#60); until then the function cannot be called from outside.
+# out of band). No allUsers: only the API Gateway service account is an invoker.
 # Deployed only once `discord_proxy_enabled` is true in <env>.tfvars: Cloud Run
 # cannot start a revision whose secret has no version, and the first apply of
 # an environment creates the secret empty (see docs/discord-bot.md).
@@ -63,12 +60,13 @@ module "discord_proxy" {
 
   # Called by the API Gateway from outside the VPC, still behind roles/run.invoker.
   ingress  = "ALLOW_ALL"
-  invokers = var.gateway_invokers
+  invokers = local.gateway_invokers
   # Discord waits 3 s: the proxy only verifies, publishes and answers.
   timeout_seconds = 10
   max_instances   = 5
 
   depends_on = [
+    google_service_account.gateway,
     google_project_iam_member.functions_build_logs,
     google_project_iam_member.functions_build_sources,
     google_artifact_registry_repository_iam_member.functions_build,

@@ -40,7 +40,7 @@ variable "frontend_domain" {
 variable "api_base_url" {
   type        = string
   default     = ""
-  description = "apiBase of config.json: https URL of the API Gateway (#60), or a same-origin path. Empty until the gateway exists"
+  description = "apiBase of config.json. Empty: the URL of the API Gateway (gateway.tf). Set it only to put something else in front of the gateway (a same-origin path, a custom domain)"
 
   validation {
     condition     = var.api_base_url == "" || can(regex("^(https://[^/?#\\s]+(/[^?#\\s]*)?|/[^/?#\\s][^?#\\s]*)$", var.api_base_url))
@@ -52,17 +52,6 @@ variable "firebase_api_key" {
   type        = string
   default     = ""
   description = "Firebase Web API key of this project (a public identifier, not a secret). Empty until the Firebase web app exists"
-}
-
-variable "gateway_invokers" {
-  type        = list(string)
-  default     = []
-  description = "Members allowed to invoke the public proxies: the API Gateway service account (#60), as serviceAccount:<email>. Never allUsers"
-
-  validation {
-    condition     = alltrue([for m in var.gateway_invokers : startswith(m, "serviceAccount:")])
-    error_message = "The proxies must only be invokable by service accounts (serviceAccount:<email>): never allUsers, allAuthenticatedUsers, users, groups or domains."
-  }
 }
 
 variable "deploy_service_account" {
