@@ -29,3 +29,13 @@ resource "google_secret_manager_secret" "this" {
 
   depends_on = [google_project_service.this]
 }
+
+# The deploy pipeline registers the slash commands after the apply (#63,
+# deploy-env.yml) with the bot token, read here with its OIDC identity: the
+# token is never a GitHub secret. Only this secret, not project-wide access.
+resource "google_secret_manager_secret_iam_member" "deploy_reads_bot_token" {
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.this["discord-bot-token"].secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${coalesce(var.deploy_service_account, "gha-deploy@${var.project_id}.iam.gserviceaccount.com")}"
+}

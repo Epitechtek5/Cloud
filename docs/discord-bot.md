@@ -60,12 +60,62 @@ For each environment:
 2. Set `discord_proxy_enabled = true` in `infra/serverless/<env>.tfvars` (PR), then deploy.
 3. Set **Interactions Endpoint URL** to `https://<gateway host>/discord/interactions`. Discord sends a signed
    PING and also checks that a badly signed request gets `401`: saving the URL only succeeds if both work.
-4. Register the slash commands (next issue: `/draw`, `/get`, `/snapshot`, `/admin`).
+4. Register the slash commands (next section).
+
+## Slash commands
+
+Definitions versioned in [`app/functions/commands/commands.json`](../app/functions/commands/commands.json)
+(subject 3.2, C07 §1.1):
+
+| Command | Options | First barrier (`default_member_permissions`) |
+| --- | --- | --- |
+| `/draw` | `x`, `y` (integers `0..99999`), `color` (`#RRGGBB`, `RRGGBB` or a palette name) | everyone |
+| `/get` | none | everyone |
+| `/snapshot` | none | Administrator |
+| `/admin pause` / `resume` / `clear` | none | Administrator |
+| `/admin ratelimit` | `user` (Discord user), `limit` (pixels per minute, `0..1000`) | Administrator |
+
+`default_member_permissions` only hides the command from non-admins in the Discord UI: guild admins can
+change it, so **the real authorization stays in the worker**. Colours are parsed with `parseColor`
+(`src/lib/colors.js`, same palette as the web canvas). The commands are guild-only (`contexts: [0]`).
+
+### Registration
+
+`app/functions/commands/register.js` compares the definitions with the registered ones and only overwrites
+them (bulk `PUT`) when they differ: re-running it is idempotent and reports `already up to date`. Guild
+commands by default, so they show up at once in the dev and prd guilds.
+
+**Pipeline**: `deploy-env.yml` runs it after the Terraform apply of each environment (dev on every push to
+`dev`, prd on release). The bot token is read from Secret Manager (`discord-bot-token`, readable only by the
+deploy service account through `google_secret_manager_secret_iam_member.deploy_reads_bot_token` in
+`infra/serverless/secrets.tf`) with the environment's OIDC identity: it is never a GitHub secret, and it is masked in the logs. The step is skipped until these
+**GitHub Environment variables** are set on `dev` and `prd`:
+
+| Variable | Value |
+| --- | --- |
+| `DISCORD_APPLICATION_ID` | application id of the environment's Discord app |
+| `DISCORD_GUILD_ID` | guild where the commands are registered (leave empty for global commands) |
+
+Then add the token once per environment (Bot, Reset Token in the developer portal):
+
+```bash
+printf '%s' '<bot token>' | gcloud secrets versions add discord-bot-token --data-file=- --project <project_id>
+```
+
+**By hand** (same script, e.g. to test a change on dev):
+
+```bash
+cd app/functions
+DISCORD_BOT_TOKEN="$(gcloud secrets versions access latest --secret=discord-bot-token --project <project_id>)" \
+  node commands/register.js --application-id <app id> --guild-id <guild id> [--dry-run]
+```
 
 ## Tests
 
 - Unit (`npm test` in `app/functions`): signature over the raw body (valid, tampered body/timestamp, foreign
   key, malformed headers, replay), PING, deferred ack, published event, publish and secret failures.
+- Commands (`test/commands`): the mandatory commands and options, grid bounds, admin barrier, idempotent
+  registration against a fake Discord API (second run makes no `PUT`), token never printed, 429 retry.
 - Live, through the gateway: `scripts/test-discord-proxy.sh https://<gateway host>/discord/interactions`
   (unsigned and badly signed requests get `401`). The positive live test is the PING validation of step 2,
   then `/draw` in Discord showing "thinking..." and a message on `discord.command`

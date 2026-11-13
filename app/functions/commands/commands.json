@@ -1,0 +1,54 @@
+[
+  {
+    "name": "draw",
+    "type": 1,
+    "description": "Paint one pixel of the canvas",
+    "contexts": [0],
+    "options": [
+      { "name": "x", "type": 4, "description": "Column, 0 to 99999", "required": true, "min_value": 0, "max_value": 99999 },
+      { "name": "y", "type": 4, "description": "Row, 0 to 99999", "required": true, "min_value": 0, "max_value": 99999 },
+      {
+        "name": "color",
+        "type": 3,
+        "description": "Hex colour #RRGGBB or a palette name (white, red, blue...)",
+        "required": true,
+        "min_length": 3,
+        "max_length": 9
+      }
+    ]
+  },
+  {
+    "name": "get",
+    "type": 1,
+    "description": "Get the link to the canvas",
+    "contexts": [0]
+  },
+  {
+    "name": "snapshot",
+    "type": 1,
+    "description": "Generate a snapshot image of the canvas (admin)",
+    "contexts": [0],
+    "default_member_permissions": "8"
+  },
+  {
+    "name": "admin",
+    "type": 1,
+    "description": "Administer the canvas",
+    "contexts": [0],
+    "default_member_permissions": "8",
+    "options": [
+      { "name": "pause", "type": 1, "description": "Pause drawing for everyone" },
+      { "name": "resume", "type": 1, "description": "Resume drawing" },
+      { "name": "clear", "type": 1, "description": "Clear the whole canvas" },
+      {
+        "name": "ratelimit",
+        "type": 1,
+        "description": "Set the pixels per minute of a user",
+        "options": [
+          { "name": "user", "type": 6, "description": "User to limit", "required": true },
+          { "name": "limit", "type": 4, "description": "Pixels per minute", "required": true, "min_value": 0, "max_value": 1000 }
+        ]
+      }
+    ]
+  }
+]
