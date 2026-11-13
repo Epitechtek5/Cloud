@@ -2,6 +2,8 @@
 // RFC 7636) and the current user (scope `identify`). The access token is only
 // returned to the caller, never stored, and no error carries a response body.
 
+export const DISCORD_API = "https://discord.com/api/v10";
+
 /** Error with a safe, fixed `reason` and the upstream HTTP status, nothing else. */
 export class DiscordError extends Error {
   constructor(reason, status) {
@@ -33,7 +35,7 @@ async function call(fetchFn, url, init, step, timeoutMs) {
 /**
  * @returns {Promise<string>} the Discord access token (scope checked)
  */
-export async function exchangeCode(fetchFn, { apiUrl, timeoutMs, clientId, clientSecret, code, codeVerifier, redirectUri }) {
+export async function exchangeCode(fetchFn, { timeoutMs, clientId, clientSecret, code, codeVerifier, redirectUri }) {
   const form = new URLSearchParams({
     client_id: clientId,
     client_secret: clientSecret,
@@ -47,7 +49,7 @@ export async function exchangeCode(fetchFn, { apiUrl, timeoutMs, clientId, clien
 
   const body = await call(
     fetchFn,
-    `${apiUrl}/oauth2/token`,
+    `${DISCORD_API}/oauth2/token`,
     { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: form },
     "token",
     timeoutMs,
@@ -62,10 +64,10 @@ export async function exchangeCode(fetchFn, { apiUrl, timeoutMs, clientId, clien
 }
 
 /** @returns {Promise<{id: string, username: string}>} */
-export async function fetchUser(fetchFn, { apiUrl, timeoutMs, accessToken }) {
+export async function fetchUser(fetchFn, { timeoutMs, accessToken }) {
   const body = await call(
     fetchFn,
-    `${apiUrl}/users/@me`,
+    `${DISCORD_API}/users/@me`,
     { method: "GET", headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" } },
     "user",
     timeoutMs,

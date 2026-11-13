@@ -55,30 +55,6 @@ variable "auth_discord_http_timeout_ms" {
   description = "Timeout of each outgoing call of auth-discord (Discord, metadata server, IAM Credentials), in milliseconds"
 }
 
-variable "discord_api_url" {
-  type        = string
-  default     = "https://discord.com/api/v10"
-  description = "Base URL of the Discord API"
-}
-
-variable "gce_metadata_url" {
-  type        = string
-  default     = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default"
-  description = "Metadata server endpoint of the function's service account (token and email)"
-}
-
-variable "iam_credentials_url" {
-  type        = string
-  default     = "https://iamcredentials.googleapis.com/v1"
-  description = "Base URL of the IAM Credentials API (signJwt for the Firebase custom token)"
-}
-
-variable "firebase_token_audience" {
-  type        = string
-  default     = "https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit"
-  description = "Audience of a Firebase custom token (fixed by Identity Toolkit)"
-}
-
 variable "auth_discord_invokers" {
   type        = list(string)
   default     = []
@@ -112,18 +88,14 @@ module "auth_discord" {
   build_service_account_id = google_service_account.functions_build.id
 
   environment_variables = {
-    DISCORD_CLIENT_ID       = var.discord_client_id
-    ALLOWED_REDIRECT_URIS   = jsonencode(var.auth_discord_redirect_uris)
-    JWT_ISSUER              = local.auth_jwt_issuer
-    JWT_AUDIENCE            = local.auth_jwt_audience
-    JWT_TTL_SECONDS         = tostring(var.auth_jwt_ttl_seconds)
-    FUNCTION_NAME           = local.auth_discord_name
-    DISCORD_API_URL         = var.discord_api_url
-    HTTP_TIMEOUT_MS         = tostring(var.auth_discord_http_timeout_ms)
-    FIREBASE_CUSTOM_TOKEN   = tostring(var.auth_discord_firebase_custom_token)
-    GCE_METADATA_URL        = var.gce_metadata_url
-    IAM_CREDENTIALS_URL     = var.iam_credentials_url
-    FIREBASE_TOKEN_AUDIENCE = var.firebase_token_audience
+    DISCORD_CLIENT_ID     = var.discord_client_id
+    ALLOWED_REDIRECT_URIS = jsonencode(var.auth_discord_redirect_uris)
+    JWT_ISSUER            = local.auth_jwt_issuer
+    JWT_AUDIENCE          = local.auth_jwt_audience
+    JWT_TTL_SECONDS       = tostring(var.auth_jwt_ttl_seconds)
+    FUNCTION_NAME         = local.auth_discord_name
+    HTTP_TIMEOUT_MS       = tostring(var.auth_discord_http_timeout_ms)
+    FIREBASE_CUSTOM_TOKEN = tostring(var.auth_discord_firebase_custom_token)
   }
 
   # secretAccessor on these two secrets only, for this function's account only.

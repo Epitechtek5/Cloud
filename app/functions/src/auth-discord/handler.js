@@ -64,7 +64,7 @@ function setCors(req, res, config) {
  * @param {(line: string) => void} [deps.write] log sink
  */
 export function createHandler({ config, fetch: fetchFn, now = () => Date.now(), write }) {
-  const firebaseToken = config.firebase ? createFirebaseSigner(fetchFn, { ...config.firebase, timeoutMs: config.httpTimeoutMs }, now) : null;
+  const firebaseToken = config.firebaseCustomToken ? createFirebaseSigner(fetchFn, config.httpTimeoutMs, now) : null;
 
   async function login(req, res, log) {
     let input;
@@ -79,7 +79,6 @@ export function createHandler({ config, fetch: fetchFn, now = () => Date.now(), 
 
     try {
       const accessToken = await exchangeCode(fetchFn, {
-        apiUrl: config.discordApiUrl,
         timeoutMs: config.httpTimeoutMs,
         clientId: config.discordClientId,
         clientSecret: config.discordClientSecret,
@@ -87,7 +86,7 @@ export function createHandler({ config, fetch: fetchFn, now = () => Date.now(), 
         codeVerifier: input.codeVerifier,
         redirectUri: input.redirectUri,
       });
-      const user = await fetchUser(fetchFn, { apiUrl: config.discordApiUrl, timeoutMs: config.httpTimeoutMs, accessToken });
+      const user = await fetchUser(fetchFn, { timeoutMs: config.httpTimeoutMs, accessToken });
 
       const iat = Math.floor(now() / 1000);
       const token = signJwt(config.signingKey, {
