@@ -111,9 +111,6 @@ jobs:
 
       - name: terraform plan
         if: steps.stack.outputs.found == 'true'
-        env:
-          # Repository variable suffixed _DEV / _PRD, like the other per-env values above.
-          TF_VAR_discord_client_id: ${{ vars[format('DISCORD_CLIENT_ID_{0}', matrix.env)] }}
         run: |
           terraform -chdir="infra/$STACK" plan -input=false -lock=false \
             -var-file="$ENV.tfvars" -out="$RUNNER_TEMP/tfplan"

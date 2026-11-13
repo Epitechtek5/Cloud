@@ -34,7 +34,7 @@ browser / Discord proxy ──HTTPS──> global external Application LB (manag
 ```
 
 - **Same artifact everywhere**: `deploy.yml` builds `app/frontend` once; the stack uploads
-  `${app_artifact_dir}/frontend/**` and writes `config.json` next to it from the tfvars of the environment and the `DISCORD_CLIENT_ID` GitHub variable (`discord_client_id`, per-environment, not in the tfvars)
+  `${app_artifact_dir}/frontend/**` and writes `config.json` next to it from the tfvars of the environment
   (`env`, `apiBase`, `discordClientId`, Firebase config; format in `app/frontend/src/runtimeConfig.ts`).
   PR plans and destroy have no artifact: nothing is uploaded and the `frontend_artifact` check warns (a PR plan
   therefore shows the frontend objects removed). A local plan uses `app/frontend/dist` if it was built.

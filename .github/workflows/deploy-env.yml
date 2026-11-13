@@ -55,8 +55,6 @@ jobs:
       - name: terraform apply (foundation, then serverless)
         env:
           TF_VAR_app_artifact_dir: ${{ runner.temp }}/artifact
-          # Per-environment value, a variable of the GitHub Environment (not in the tfvars).
-          TF_VAR_discord_client_id: ${{ vars.DISCORD_CLIENT_ID }}
         run: |
           for stack in foundation serverless; do
             if ! ls infra/$stack/*.tf >/dev/null 2>&1; then

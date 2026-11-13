@@ -9,7 +9,7 @@ Le front s'exécute de deux façons avec le même code (`app/frontend`) :
 | Réseau | direct | passe par le proxy Discord (`<app_id>.discordsays.com`), voir mappings |
 | Token | en mémoire (jamais dans `localStorage`) | en mémoire |
 
-Scope demandé : `identify` uniquement. Il y a **une application Discord par environnement** (dev et prd) : le `client_id` (public) est donc lu au runtime dans `/config.json` (`discordClientId`), jamais figé au build, puisque le même artefact est promu de dev vers prd. Il est fourni à Terraform par la variable GitHub `DISCORD_CLIENT_ID` de chaque Environment (et `DISCORD_CLIENT_ID_DEV` / `DISCORD_CLIENT_ID_PRD` en variables de dépôt pour le plan des PR), jamais écrit dans le dépôt.
+Scope demandé : `identify` uniquement. Il y a **une application Discord par environnement** (dev et prd) : le `client_id` (public) est donc lu au runtime dans `/config.json` (`discordClientId`), jamais figé au build, puisque le même artefact est promu de dev vers prd. Application de dev actuelle : `1562814087900037260`.
 
 ## 1. Réglages du Developer Portal (à faire une fois, par application dev/prd)
 

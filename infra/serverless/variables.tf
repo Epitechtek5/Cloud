@@ -51,7 +51,7 @@ variable "api_base_url" {
 variable "discord_client_id" {
   type        = string
   default     = ""
-  description = "Public id of the Discord application of this environment (one application per environment). Not in the tfvars: the pipeline sets it as TF_VAR_discord_client_id from the GitHub variable DISCORD_CLIENT_ID"
+  description = "Public id of the Discord application of this environment (one application per environment)"
 
   validation {
     condition     = can(regex("^[0-9]*$", var.discord_client_id))
