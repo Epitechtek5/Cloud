@@ -15,15 +15,15 @@ interface Entry<S> {
   ty: number;
   surface: S;
   ready: boolean;
-  pending: PixelDelta[];
   abort: AbortController;
   unsubscribe: Unsubscribe;
 }
 
 /**
  * Keeps exactly the tiles around the viewport alive. A tile is subscribed to the
- * real-time channel for as long as it is cached, so a cached tile is never stale:
- * leaving the (margin-extended) viewport drops both the raster and the subscription.
+ * real-time channel (right after its raster is loaded) for as long as it is cached, so a
+ * cached tile is never stale: leaving the (margin-extended) viewport drops both the raster
+ * and the subscription.
  */
 export class TileManager<S extends TileSurface = TileSurface> {
   private entries = new Map<string, Entry<S>>();
@@ -78,27 +78,24 @@ export class TileManager<S extends TileSurface = TileSurface> {
       ty,
       surface: this.createSurface(tx, ty),
       ready: false,
-      pending: [],
       abort: new AbortController(),
       unsubscribe: () => {},
     };
     this.entries.set(key, entry);
 
-    // Subscribe BEFORE fetching the raster so no delta is lost in between;
-    // deltas received while loading are replayed on top of the raster.
-    entry.unsubscribe = this.realtime.subscribeTile(tx, ty, (deltas) => {
-      if (!entry.ready) entry.pending.push(...deltas);
-      else this.apply(entry, deltas);
-    });
-
+    // Raster first, subscription second. The raster carries a version (the time of its newest
+    // pixel); subscribing "since" that version makes the channel deliver exactly what the raster
+    // misses, then live changes. Nothing is lost between the two and nothing has to be buffered.
     this.source
       .loadTile(tx, ty, entry.abort.signal)
       .then((raster) => {
-        if (this.entries.get(key) !== entry) return; // evicted meanwhile
-        if (raster) entry.surface.putRaster(raster);
+        if (this.entries.get(key) !== entry) return; // evicted meanwhile: do not subscribe
+        if (raster.rgba) entry.surface.putRaster(raster.rgba);
         entry.ready = true;
-        this.apply(entry, entry.pending);
-        entry.pending = [];
+        entry.unsubscribe = this.realtime.subscribeTile(tx, ty, (deltas) => this.apply(entry, deltas), {
+          since: raster.version,
+        });
+        this.onChange(); // the raster itself is now visible
       })
       .catch(() => {
         // Network failure: forget the tile so the next viewport change retries it.

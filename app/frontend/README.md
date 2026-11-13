@@ -35,6 +35,9 @@ npm run build      # un seul artefact, promu dev → prd par la CI (services GCP
   des utilisateurs distants). Le canvas ne se met à jour que par événements.
 - Une tuile en cache est toujours abonnée au temps réel ; sortir du viewport (+1 tuile de marge)
   supprime le raster **et** l'abonnement, donc le cache n'est jamais périmé.
+- **Raster d'abord, abonnement ensuite** : `loadTile` renvoie le raster et sa `version` (le `t` de son pixel le plus récent) ;
+  `subscribeTile(..., { since: version })` livre alors seulement ce que le raster n'a pas, puis les changements en direct.
+  Aucun pixel perdu entre les deux, et aucun tampon à gérer côté front.
 - Le mock est exclu des bundles `dev`/`prd` (tree-shaking via `__BACKEND__`).
 - Aucun secret côté front. Le `client_id` Discord (public, un par environnement) vient aussi de `/config.json`.
 - **Build once, deploy everywhere** (cf. `deploy-env.yml`) : le build ne contient rien de spécifique
