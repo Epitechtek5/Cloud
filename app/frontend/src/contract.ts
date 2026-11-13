@@ -45,14 +45,33 @@ export type UserEvent =
 
 export type Unsubscribe = () => void;
 
-/** Initial raster of a tile; `null` when nothing was ever painted there. */
+/** Initial raster of a tile, with the version it was rendered at. */
+export interface TileRaster {
+  /** RGBA, TILE_SIZE*TILE_SIZE*4. Unpainted pixels have alpha 0. `null` when nothing was ever painted there. */
+  rgba: Uint8ClampedArray | null;
+  /** Epoch ms of the most recent pixel included in the raster (`X-Tile-Version`); 0 for an empty tile. */
+  version: number;
+}
+
 export interface TileSource {
-  /** RGBA, TILE_SIZE*TILE_SIZE*4. Unpainted pixels have alpha 0. */
-  loadTile(tx: number, ty: number, signal: AbortSignal): Promise<Uint8ClampedArray | null>;
+  loadTile(tx: number, ty: number, signal: AbortSignal): Promise<TileRaster>;
+}
+
+export interface TileSubscriptionOptions {
+  /**
+   * `TileRaster.version` of the raster already displayed. The channel first delivers the pixels
+   * strictly newer than this (what the raster misses), then every live change.
+   */
+  since: number;
 }
 
 export interface RealtimeChannel {
-  subscribeTile(tx: number, ty: number, onDeltas: (deltas: PixelDelta[]) => void): Unsubscribe;
+  subscribeTile(
+    tx: number,
+    ty: number,
+    onDeltas: (deltas: PixelDelta[]) => void,
+    options: TileSubscriptionOptions,
+  ): Unsubscribe;
   subscribeSession(onState: (state: SessionState) => void): Unsubscribe;
   subscribeUserEvents(onEvent: (event: UserEvent) => void): Unsubscribe;
 }
