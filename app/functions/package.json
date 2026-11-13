@@ -2,13 +2,21 @@
   "name": "functions",
   "version": "0.0.0",
   "private": true,
-  "description": "Cloud Run functions of the pixel canvas (no runtime dependency)",
+  "description": "Cloud Run functions: one entry point per function in src/, shared runtime library in src/lib",
   "type": "module",
-  "main": "index.js",
   "scripts": {
-    "lint": "for f in $(find src test -name '*.js'); do node --check \"$f\" || exit 1; done",
+    "lint": "find src test -name '*.js' -print0 | xargs -0 -n1 node --check",
     "test": "node --test",
-    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true});require('fs').cpSync('src','dist',{recursive:true});require('fs').copyFileSync('package.json','dist/package.json')\"",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include='src/lib/**' --test-coverage-lines=90 --test-coverage-branches=80 --test-coverage-functions=90",
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true});require('fs').cpSync('src','dist',{recursive:true});require('fs').copyFileSync('package.json','dist/package.json');require('fs').copyFileSync('package-lock.json','dist/package-lock.json')\"",
     "gcp-build": ""
-  }
+  },
+  "dependencies": {
+    "@google-cloud/pubsub": "^6.4.1",
+    "@google-cloud/secret-manager": "^8.0.0"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "index.js"
 }

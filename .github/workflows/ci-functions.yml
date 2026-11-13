@@ -35,8 +35,10 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Unit tests
-        run: npm test
+      # Unit tests with coverage of the shared library (src/lib); the run fails
+      # below the thresholds set in package.json (test:coverage).
+      - name: Unit tests and coverage
+        run: npm run test:coverage
 
       - name: Build
         run: npm run build
