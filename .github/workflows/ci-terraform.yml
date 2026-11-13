@@ -20,7 +20,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The wrapper is a Node script (#!/usr/bin/env node): the self-hosted
+      # runner image has no node on PATH, so terraform would exit 127.
       - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
 
       - name: terraform fmt
         run: terraform fmt -check -recursive -diff infra
