@@ -95,7 +95,7 @@ jobs:
       # Read-only service account, not bound to a GitHub Environment so a PR
       # plan never waits for the prd reviewers. Without an Environment the
       # per-env values are repository variables suffixed _DEV / _PRD
-      # (written by scripts/bootstrap-wif.sh).
+      # (outputs of infra/access, see scripts/publish-github-variables.sh).
       - if: steps.stack.outputs.found == 'true'
         uses: google-github-actions/auth@v2
         with:
