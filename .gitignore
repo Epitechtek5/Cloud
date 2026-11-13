@@ -15,6 +15,8 @@ override.tf.json
 *_override.tf.json
 .terraformrc
 terraform.rc
+# Per-environment values kept out of the public repo (billing account, emails)
+*.local.tfvars
 
 # Credentials / secrets
 *.json

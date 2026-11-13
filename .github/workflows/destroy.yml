@@ -60,8 +60,8 @@ jobs:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
 
-      # Reverse order of the deploy. infra/access (human access) is never
-      # listed here, on purpose.
+      # Reverse order of the deploy. infra/access (human access) and
+      # infra/billing (budget alerts) are never listed here, on purpose.
       - name: terraform destroy (serverless, then foundation)
         env:
           TF_VAR_app_artifact_dir: ${{ runner.temp }}/empty
