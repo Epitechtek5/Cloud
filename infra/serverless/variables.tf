@@ -53,3 +53,20 @@ variable "firebase_api_key" {
   default     = ""
   description = "Firebase Web API key of this project (a public identifier, not a secret). Empty until the Firebase web app exists"
 }
+
+variable "gateway_invokers" {
+  type        = list(string)
+  default     = []
+  description = "Members allowed to invoke the public proxies: the API Gateway service account (#60), as serviceAccount:<email>. Never allUsers"
+
+  validation {
+    condition     = alltrue([for m in var.gateway_invokers : startswith(m, "serviceAccount:")])
+    error_message = "The proxies must only be invokable by service accounts (serviceAccount:<email>): never allUsers, allAuthenticatedUsers, users, groups or domains."
+  }
+}
+
+variable "discord_proxy_enabled" {
+  type        = bool
+  default     = false
+  description = "Deploy the discord-proxy function. Set to true only once the discord-public-key secret has a version in this environment: a revision cannot start on a secret without one"
+}

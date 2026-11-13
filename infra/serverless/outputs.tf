@@ -44,3 +44,8 @@ output "pubsub_dlq_subscriptions" {
   value       = module.pubsub.dlq_subscriptions
   description = "Dead-letter pull subscriptions by channel name (inspect and replay failed messages)"
 }
+
+output "discord_proxy_uri" {
+  value       = one(module.discord_proxy[*].uri)
+  description = "Backend of the API Gateway route POST /discord/interactions (never given to Discord directly). Null while discord_proxy_enabled is false"
+}
