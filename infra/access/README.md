@@ -191,6 +191,9 @@ terraform -chdir=infra/access plan -var-file=dev.tfvars -var-file=dev.local.tfva
 A grant that does not exist yet (for example a team member who is only an organization owner on GitHub, not a
 direct collaborator) is reported as missing and created by the apply.
 
+`import.sh <env>` refuses to run unless the last `init` used `backends/<env>.hcl`: the imports go to whatever
+backend is initialized, so `import.sh prd` after an init on dev would write prd objects into the dev state.
+
 The first plan is not empty, on purpose: it updates the provider condition (environment and repository ids),
 adds the display names and descriptions, replaces the `grantable-roles-only` binding (its description changes),
 adds the narrow deploy roles, and on prd creates what `bootstrap-wif.sh` never did there (the two custom roles, the
