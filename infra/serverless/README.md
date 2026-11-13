@@ -12,6 +12,9 @@ of each environment: `scripts/bootstrap-state-bucket.sh` creates it (already don
 | `secrets.tf` | Secret Manager **containers**; values are added out of band |
 | `artifacts.tf` | Function source bucket and zip, Artifact Registry repository, build service account |
 | `functions.tf` | One `modules/function` instance per function |
+| `firestore.tf` | Firestore database, composite indexes, TTL and index overrides, security rules release |
+| `firestore.rules` | Browser security rules: read-only, own documents only (tests in `tests/firestore-rules`) |
+| `storage.tf` | Private `tiles` and `snapshots` buckets |
 | `outputs.tf` | `app_url` (deploy smoke test contract) and ids reused by the other issues |
 
 ## Function source
@@ -45,6 +48,35 @@ module "draw_worker" {
 
 Each function gets its own service account `fn-<name>` (logs and trace writer, its secrets only). Grant it the
 rest (publish on a topic, Firestore, a bucket) next to the resource, using `module.<fn>.service_account_email`.
+
+## Access to Firestore and the buckets
+
+Data model and reasoning: `docs/data-model.md`. Grant each function only what it needs, next to the resource:
+
+```hcl
+# A worker that writes Firestore. Firestore has no per-collection IAM, so this is
+# a project-level role (already in DEPLOY_GRANTABLE_ROLES). Read-only: roles/datastore.viewer.
+resource "google_project_iam_member" "draw_worker_firestore" {
+  project = var.project_id
+  role    = "roles/datastore.user"
+  member  = "serviceAccount:${module.draw_worker.service_account_email}"
+}
+
+# A bucket role on that bucket only, never roles/storage.* at project level.
+resource "google_storage_bucket_iam_member" "tile_renderer" {
+  bucket = google_storage_bucket.tiles.name
+  role   = "roles/storage.objectUser" # objectViewer to read, objectCreator to only add
+  member = "serviceAccount:${module.tile_renderer.service_account_email}"
+}
+```
+
+Security rules never apply to these calls: they only filter the browser SDK. Changing `firestore.rules` creates a new
+ruleset and re-points the `cloud.firestore` release; run `npm test` in `tests/firestore-rules` (Java 21 and Node 22)
+first. After a deploy, `scripts/check-private-access.sh <project_id>` checks anonymously that the buckets and Firestore
+are closed.
+
+`(default)` must not exist before the first apply (otherwise import it). On prd the database has delete protection
+and the snapshots bucket refuses `force_destroy`, so `destroy.yml` stops there until protection is lifted on purpose.
 
 ## Secrets
 

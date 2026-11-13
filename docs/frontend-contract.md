@@ -67,12 +67,16 @@ Authentification : `signInWithCustomToken(firebaseToken)`.
 ```
 
 Un document par pixel peint (pas de document « tuile » géant : pas de contention sur les tuiles chaudes, pas de limite de 1 Mio).
-Index composite `(tile ASC, t ASC)`, à créer en Terraform (`google_firestore_index`).
+Index composite `(tile ASC, t ASC)`, créé en Terraform (`google_firestore_index`, `infra/serverless/firestore.tf`). Le raisonnement
+complet (découpage, deltas, rasters, cache) est dans [data-model.md](data-model.md).
 
 Pour chaque tuile visible, le front :
 
 1. télécharge le raster et lit `X-Tile-Version` = `v` ;
-2. ouvre `pixels.where("tile","==","tx_ty").where("t",">", v).orderBy("t")`.
+2. ouvre `pixels.where("tile","==","tx_ty").where("t",">", v).orderBy("t").limit(65536)`.
+
+La **limite est obligatoire** : les règles refusent toute requête sur `pixels` sans `limit` ou avec plus de 65 536 (la taille
+d'une tuile, donc jamais atteinte par une requête de tuile). Elle plafonne ce qu'une requête abusive peut lire et facturer.
 
 Le premier snapshot contient seulement ce qui est plus récent que le raster, puis chaque changement arrive en delta : **pas de
 polling, aucun pixel perdu entre le raster et l'abonnement**. L'effacement (`/admin clear`) est un delta avec `c = -1`.
@@ -87,18 +91,26 @@ polling, aucun pixel perdu entre le raster et l'abonnement**. L'effacement (`/ad
 ### Par utilisateur : `users/{uid}` et `userEvents/{id}`
 
 - `users/{uid}` : `{ limit, used, windowStart }`, mis à jour par le worker à chaque lot ; le front affiche le quota restant.
-- `userEvents/{id}` : `{ uid, type: "rejected", reason: "rate_limited"|"paused"|"invalid", batchId, pixels: [...], t }`, écrit par le
-  worker pour les pixels refusés ; le front les écoute avec `where("uid","==",me).where("t",">", ouvertureDeLaPage)` et retire les
-  pixels optimistes concernés. Politique **TTL** (ex. 1 h) pour limiter le stockage.
+- `userEvents/{id}` : `{ uid, type: "rejected", reason: "rate_limited"|"paused"|"invalid", batchId, pixels: [...], t, expireAt }`, écrit par le
+  worker pour les pixels refusés ; le front les écoute avec `where("uid","==",me).where("t",">", ouvertureDeLaPage)` (index composite
+  `(uid, t)`) et retire les pixels optimistes concernés. Politique **TTL** sur `expireAt` (le worker met `t + 1 h`) pour limiter le stockage.
 
-### Règles de sécurité (esquisse)
+### Côté workers uniquement : `processedBatches/{batchId}`
 
-```
-match /pixels/{id}      { allow read: if request.auth != null; allow write: if false; }
-match /session/{id}     { allow read: if request.auth != null; allow write: if false; }
-match /users/{uid}      { allow read: if request.auth.uid == uid; allow write: if false; }
-match /userEvents/{id}  { allow read: if request.auth.uid == resource.data.uid; allow write: if false; }
-```
+`{ expireAt }`, créé dans la transaction qui applique un lot ; s'il existe déjà, le lot est ignoré (idempotence, Pub/Sub livre au
+moins une fois). TTL sur `expireAt`, au-delà de la rétention Pub/Sub (7 jours). Invisible pour le navigateur.
+
+### Règles de sécurité
+
+Déployées par Terraform depuis [`infra/serverless/firestore.rules`](../infra/serverless/firestore.rules), testées dans l'émulateur
+(`infra/serverless/tests/firestore-rules`, CI `ci-firestore-rules`). Résumé :
+
+- toute écriture est refusée, partout ;
+- « connecté » = custom token de `POST /auth/discord` (`sign_in_provider == "custom"`) ; les autres méthodes Firebase sont refusées ;
+- `pixels` : `get` si connecté, `list` si connecté **et** `limit <= 65536` ;
+- `session/state` : lecture si connecté (seul ce document) ;
+- `users/{uid}` et `userEvents` : uniquement ses propres documents (la requête doit filtrer sur `uid == moi`) ;
+- tout le reste (`processedBatches`, ...) : refusé.
 
 ## 4. Aperçu / mini-map (hors périmètre pour l'instant)
 
@@ -121,7 +133,8 @@ temps réel au pixel près (agrégat) ; à valider que c'est acceptable pour le 
   (`GET /tiles/{tx}/{ty}/url`, un aller-retour de plus). Recommandation : **(2)**.
 - **B. Hébergement du front.** `deploy-env.yml` passe `dist/` à Terraform (`app_artifact_dir`) et attend un output `app_url`.
   Qui génère `/config.json` (`env`, `apiBase`, `discordClientId` de l'environnement, config Firebase) à côté de `dist/` ?
-- **C. Granularité des tuiles Firestore** (`tile` = 256x256 ici) et fréquence de régénération des rasters (par événement avec debounce, ou
-  périodique).
+- **C. Granularité des tuiles Firestore et fréquence de régénération des rasters.** **DÉCISION PROVISOIRE (#59)**, à valider avec
+  Quentin : tuiles de **256x256** ; rasters régénérés **par événement, avec coalescence par tuile** (un seul rendu en cours par tuile,
+  aucun rendu pour une tuile calme). Détail et alternatives (512x512, Cloud Scheduler périodique) : [data-model.md](data-model.md) §2 et §4.
 - **D. Mini-map** : acceptable qu'elle soit approximative ?
 - **E. Firestore dans l'iframe Discord** : à valider dans une vraie Activity (voir `discord-activity.md` §4).
