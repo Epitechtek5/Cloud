@@ -1,8 +1,16 @@
 name: deploy
 
+# dev is deployed from the dev branch, prd from the release tags. A tag never
+# redeploys dev: it holds main's code, which is behind dev.
 on:
   push:
+    branches: [dev]
     tags: ["v*"]
+    # Docs-only pushes (e.g. the architecture diagram PR) do not redeploy dev.
+    # GitHub never evaluates path filters for tag pushes.
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
 
 permissions:
   contents: read
@@ -35,26 +43,29 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: app-${{ github.ref_name }}
+          name: app-${{ github.sha }}
           path: ${{ runner.temp }}/artifact
           if-no-files-found: error
 
   deploy-dev:
     needs: build
+    if: github.ref == 'refs/heads/dev'
     uses: ./.github/workflows/deploy-env.yml
     with:
       env: dev
-      artifact: app-${{ github.ref_name }}
+      artifact: app-${{ github.sha }}
     permissions:
       contents: read
       id-token: write
 
+  # Gated by the required reviewers of the prd GitHub Environment.
   deploy-prd:
-    needs: deploy-dev
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
     uses: ./.github/workflows/deploy-env.yml
     with:
       env: prd
-      artifact: app-${{ github.ref_name }}
+      artifact: app-${{ github.sha }}
     permissions:
       contents: read
       id-token: write

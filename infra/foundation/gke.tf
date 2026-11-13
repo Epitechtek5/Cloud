@@ -13,6 +13,9 @@ resource "google_service_account" "runners_nodes" {
 resource "google_project_iam_member" "runners_nodes" {
   count = var.runners_enabled ? 1 : 0
 
+  # Reading the project IAM policy needs the Cloud Resource Manager API.
+  depends_on = [google_project_service.foundation]
+
   project = var.project_id
   role    = "roles/container.defaultNodeServiceAccount"
   member  = "serviceAccount:${google_service_account.runners_nodes[0].email}"
@@ -23,8 +26,9 @@ resource "google_container_cluster" "runners" {
   #checkov:skip=CKV_GCP_65:No Google Groups for RBAC: the cluster has no human users, Kubernetes access goes through the IAM roles of the deploy and plan service accounts
   count = var.runners_enabled ? 1 : 0
 
-  # Nodes must not start before their service account has its role.
-  depends_on = [google_project_iam_member.runners_nodes]
+  # Nodes must not start before their service account has its role, and the
+  # GKE API must be enabled first.
+  depends_on = [google_project_iam_member.runners_nodes, google_project_service.foundation]
 
   name = var.runners_cluster_name
   # Zonal on purpose: a regional cluster would run the node pool in 3 zones

@@ -64,7 +64,8 @@ Runners) before being uninstalled itself. No registration is left behind.
 1. **Create a GitHub App** on the organization (Repository permissions: Actions read, Administration read and
    write, Metadata read), install it on this repository and download its private key.
 2. **Give the deploy account the Kubernetes RBAC role** (`ghaDeployK8sRbac`) by running
-   `scripts/bootstrap-wif.sh` again on the project (Owner needed). The GKE API is enabled by Terraform.
+   `scripts/bootstrap-wif.sh` again on the project (Owner needed). The `container` and `cloudresourcemanager` APIs
+   are enabled by Terraform (`infra/foundation/apis.tf`).
 3. **Deploy** through the usual release flow. The cluster only exists in dev (`runners_enabled = true` in
    `dev.tfvars`): the runners are a single scale set, so a prd cluster would be billed for nothing.
 4. **Create the GitHub App secret, once per cluster.** It is the only manual step left (issue #54 moves it to
