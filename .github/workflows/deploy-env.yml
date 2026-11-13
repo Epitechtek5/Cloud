@@ -21,7 +21,9 @@ jobs:
     name: deploy-${{ inputs.env }}
     # Never on the runners: this Terraform creates and destroys their cluster.
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The first apply of an environment creates everything, the API Gateway alone
+    # takes about 10 minutes. A job cancelled mid-apply can leave the state lock.
+    timeout-minutes: 60
     # Required reviewers on prd are configured on the GitHub Environment.
     environment: ${{ inputs.env }}
     concurrency:
