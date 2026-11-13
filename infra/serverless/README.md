@@ -17,6 +17,7 @@ of each environment: `scripts/bootstrap-state-bucket.sh` creates it (already don
 | `firestore.tf` | Firestore database, composite indexes, TTL and index overrides, security rules release |
 | `firestore.rules` | Browser security rules: read-only, own documents only (tests in `tests/firestore-rules`) |
 | `storage.tf` | Private `tiles` and `snapshots` buckets |
+| `pubsub.tf` | Topics, consumer subscriptions and dead-letter topics (`modules/pubsub`, see `docs/pubsub.md`) |
 | `outputs.tf` | `app_url` (deploy smoke test contract) and ids reused by the other issues |
 
 ## Function source
@@ -66,7 +67,19 @@ browser / Discord proxy ──HTTPS──> global external Application LB (manag
 
 ## Adding a function
 
+Every function is an HTTP function. A **proxy** is invoked by the API Gateway; a **worker** is invoked by the
+push subscription of its channel (`pubsub.tf`), which gives it the retry policy and the dead-letter topic of
+`modules/pubsub`. There is no Eventarc trigger option on purpose: it would create its own subscription, without
+DLQ, outside Terraform.
+
 ```hcl
+# Identity Pub/Sub uses to sign the push requests (OIDC) to the worker.
+resource "google_service_account" "draw_push" {
+  project      = var.project_id
+  account_id   = "push-draw-worker"
+  display_name = "Pub/Sub push to draw-worker"
+}
+
 module "draw_worker" {
   source = "./modules/function"
 
@@ -75,17 +88,28 @@ module "draw_worker" {
   name        = "draw-worker"
   description = "Applies pixel.draw events"
   runtime     = var.functions_runtime
-  entry_point = "drawWorker"
+  entry_point = "drawWorker" # decodes the body with decodePushMessage (src/lib)
 
   source_bucket            = google_storage_bucket.functions_source.name
   source_object            = google_storage_bucket_object.functions_source.name
   docker_repository        = google_artifact_registry_repository.functions.id
   build_service_account_id = google_service_account.functions_build.id
 
-  pubsub_topic = google_pubsub_topic.pixel_draw.id                       # null for HTTP
-  secret_env   = { DISCORD_BOT_TOKEN = google_secret_manager_secret.this["discord-bot-token"].secret_id }
+  invokers   = [google_service_account.draw_push.member] # only its subscription can call it
+  secret_env = { DISCORD_BOT_TOKEN = google_secret_manager_secret.this["discord-bot-token"].secret_id }
 }
+
+# In pubsub.tf, module "pubsub":
+#   push = {
+#     "pixel.draw" = {
+#       endpoint        = module.draw_worker.uri
+#       service_account = google_service_account.draw_push.email
+#     }
+#   }
 ```
+
+A worker answers `2xx` to ack the message. Any other status (or a timeout) makes Pub/Sub retry with backoff, then
+dead-letter the message after `max_delivery_attempts`.
 
 Each function gets its own service account `fn-<name>` (logs and trace writer, its secrets only). Grant it the
 rest (publish on a topic, Firestore, a bucket) next to the resource, using `module.<fn>.service_account_email`.

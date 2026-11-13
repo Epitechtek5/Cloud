@@ -71,17 +71,6 @@ resource "google_cloudfunctions2_function" "this" {
     }
   }
 
-  dynamic "event_trigger" {
-    for_each = var.pubsub_topic == null ? [] : [var.pubsub_topic]
-    content {
-      trigger_region        = var.region
-      event_type            = "google.cloud.pubsub.topic.v1.messagePublished"
-      pubsub_topic          = event_trigger.value
-      retry_policy          = "RETRY_POLICY_RETRY"
-      service_account_email = google_service_account.this.email
-    }
-  }
-
   # The secrets must be readable before the first revision starts.
   depends_on = [
     google_project_iam_member.runtime,
@@ -89,14 +78,11 @@ resource "google_cloudfunctions2_function" "this" {
   ]
 }
 
-# HTTP callers, plus the function's own account when Eventarc pushes the
-# Pub/Sub messages with it. Keys stay static (the account email is only known
-# after apply), so var.invokers must be known at plan time.
+# HTTP callers: the API Gateway for a proxy, the push service account of its
+# subscription (infra/serverless/pubsub.tf) for a worker. Keys are the members
+# themselves, so var.invokers must be known at plan time.
 resource "google_cloud_run_v2_service_iam_member" "invoker" {
-  for_each = merge(
-    { for m in var.invokers : m => m },
-    var.pubsub_topic == null ? {} : { eventarc-trigger = google_service_account.this.member },
-  )
+  for_each = toset(var.invokers)
 
   project  = var.project_id
   location = var.region

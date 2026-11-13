@@ -65,12 +65,6 @@ variable "secret_env" {
   description = "Environment variable name => Secret Manager secret id. The function's service account gets secretAccessor on each of these secrets only"
 }
 
-variable "pubsub_topic" {
-  type        = string
-  default     = null
-  description = "Full topic id (projects/<p>/topics/<t>) triggering the function. Null for an HTTP function"
-}
-
 variable "ingress" {
   type        = string
   default     = "ALLOW_INTERNAL_ONLY"
