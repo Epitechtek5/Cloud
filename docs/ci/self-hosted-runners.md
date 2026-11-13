@@ -32,7 +32,7 @@ GitHub  <--- long poll (HTTPS) ---  arc-systems: controller + listener
    (`runners_enabled = true` in `dev.tfvars`): the runners are a single scale set, so a prd cluster would be
    billed for nothing. The deploy service account needs `container.admin`, `iam.serviceAccountAdmin`,
    `resourcemanager.projectIamAdmin`, `compute.networkAdmin`, and `iam.serviceAccountUser` on the node service
-   account, and `container.googleapis.com` must be enabled on the project.
+   account. The `container` and `cloudresourcemanager` APIs are enabled by Terraform (`infra/foundation/apis.tf`).
 3. **Allow your machine to reach the control plane.** The authorized networks are managed outside Terraform
    (`ignore_changes`), so a deploy never resets them and your IP is never committed:
 
