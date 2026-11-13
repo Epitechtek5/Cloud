@@ -1,24 +1,526 @@
 {
   "edges": [],
   "groups": {
-    "compute": [],
-    "data": [],
-    "network": [
+    "compute": [
       {
-        "address": "google_compute_firewall.deny_all_ingress",
-        "label": "Firewall deny_all_ingress"
+        "address": "prd:module.gateway_stub.google_cloudfunctions2_function.this",
+        "label": "Function gateway stub"
       },
       {
-        "address": "google_compute_network.main",
+        "address": "prd:module.health.google_cloudfunctions2_function.this",
+        "label": "Function health"
+      },
+      {
+        "address": "dev:google_container_cluster.runners[0]",
+        "label": "GKE cluster runners"
+      },
+      {
+        "address": "dev:google_container_node_pool.runners[0]",
+        "label": "GKE node pool runners"
+      },
+      {
+        "address": "dev:helm_release.arc_controller[0]",
+        "label": "Helm arc controller"
+      },
+      {
+        "address": "dev:helm_release.arc_runner_set[0]",
+        "label": "Helm arc runner set"
+      },
+      {
+        "address": "dev:kubernetes_limit_range_v1.runners[0]",
+        "label": "K8s limit range runners"
+      },
+      {
+        "address": "dev:kubernetes_namespace_v1.runners[\"arc-runners\"]",
+        "label": "K8s namespace arc-runners"
+      },
+      {
+        "address": "dev:kubernetes_namespace_v1.runners[\"arc-systems\"]",
+        "label": "K8s namespace arc-systems"
+      },
+      {
+        "address": "dev:kubernetes_network_policy_v1.runners_deny_ingress[0]",
+        "label": "K8s policy deny ingress"
+      },
+      {
+        "address": "dev:kubernetes_network_policy_v1.runners_egress[0]",
+        "label": "K8s policy egress"
+      },
+      {
+        "address": "dev:module.gateway_stub.google_cloudfunctions2_function.this",
+        "label": "Function gateway stub"
+      },
+      {
+        "address": "dev:module.health.google_cloudfunctions2_function.this",
+        "label": "Function health"
+      }
+    ],
+    "data": [
+      {
+        "address": "prd:google_artifact_registry_repository.functions",
+        "label": "Artifact registry functions"
+      },
+      {
+        "address": "prd:google_firebaserules_release.firestore",
+        "label": "Firebase rules release"
+      },
+      {
+        "address": "prd:google_firebaserules_ruleset.firestore",
+        "label": "Firebase rules ruleset"
+      },
+      {
+        "address": "prd:google_firestore_database.main",
+        "label": "Firestore database main"
+      },
+      {
+        "address": "prd:google_firestore_field.pixels_t",
+        "label": "Firestore field pixels_t"
+      },
+      {
+        "address": "prd:google_firestore_field.ttl[\"processedBatches\"]",
+        "label": "Firestore field ttl processedBatches"
+      },
+      {
+        "address": "prd:google_firestore_field.ttl[\"userEvents\"]",
+        "label": "Firestore field ttl userEvents"
+      },
+      {
+        "address": "prd:google_firestore_index.pixels_by_tile",
+        "label": "Firestore index pixels_by_tile"
+      },
+      {
+        "address": "prd:google_firestore_index.user_events_by_uid",
+        "label": "Firestore index user_events_by_uid"
+      },
+      {
+        "address": "prd:google_secret_manager_secret.this[\"discord-bot-token\"]",
+        "label": "Secret discord-bot-token"
+      },
+      {
+        "address": "prd:google_secret_manager_secret.this[\"discord-oauth-client-secret\"]",
+        "label": "Secret discord-oauth-client-secret"
+      },
+      {
+        "address": "prd:google_secret_manager_secret.this[\"discord-public-key\"]",
+        "label": "Secret discord-public-key"
+      },
+      {
+        "address": "prd:google_storage_bucket.frontend",
+        "label": "Bucket frontend"
+      },
+      {
+        "address": "prd:google_storage_bucket.functions_source",
+        "label": "Bucket functions source"
+      },
+      {
+        "address": "prd:google_storage_bucket.snapshots",
+        "label": "Bucket snapshots"
+      },
+      {
+        "address": "prd:google_storage_bucket.tiles",
+        "label": "Bucket tiles"
+      },
+      {
+        "address": "prd:google_storage_bucket_object.frontend[\"assets/index-C08dPwDo.css\"]",
+        "label": "Object index-C08dPwDo.css"
+      },
+      {
+        "address": "prd:google_storage_bucket_object.frontend[\"assets/index-CiVFvZGL.js\"]",
+        "label": "Object index-CiVFvZGL.js"
+      },
+      {
+        "address": "prd:google_storage_bucket_object.frontend[\"assets/index-CiVFvZGL.js.map\"]",
+        "label": "Object index-CiVFvZGL.js.map"
+      },
+      {
+        "address": "prd:google_storage_bucket_object.frontend[\"assets/output-DEj_51ro.js\"]",
+        "label": "Object output-DEj_51ro.js"
+      },
+      {
+        "address": "prd:google_storage_bucket_object.frontend[\"assets/output-DEj_51ro.js.map\"]",
+        "label": "Object output-DEj_51ro.js.map"
+      },
+      {
+        "address": "prd:google_storage_bucket_object.frontend[\"index.html\"]",
+        "label": "Object index.html"
+      },
+      {
+        "address": "prd:google_storage_bucket_object.frontend_config",
+        "label": "Object frontend config"
+      },
+      {
+        "address": "prd:google_storage_bucket_object.functions_source",
+        "label": "Object functions source"
+      },
+      {
+        "address": "prd:module.pubsub.google_pubsub_subscription.main[\"discord.command\"]",
+        "label": "Pubsub sub discord.command"
+      },
+      {
+        "address": "prd:module.pubsub.google_pubsub_subscription.main[\"pixel.draw\"]",
+        "label": "Pubsub sub pixel.draw"
+      },
+      {
+        "address": "prd:module.pubsub.google_pubsub_subscription.main[\"pixel.processed\"]",
+        "label": "Pubsub sub pixel.processed"
+      },
+      {
+        "address": "prd:module.pubsub.google_pubsub_subscription.main[\"snapshot.requested\"]",
+        "label": "Pubsub sub snapshot.requested"
+      },
+      {
+        "address": "prd:module.pubsub.google_pubsub_subscription.dlq[\"discord.command\"]",
+        "label": "Pubsub DLQ discord.command"
+      },
+      {
+        "address": "prd:module.pubsub.google_pubsub_subscription.dlq[\"pixel.draw\"]",
+        "label": "Pubsub DLQ pixel.draw"
+      },
+      {
+        "address": "prd:module.pubsub.google_pubsub_subscription.dlq[\"pixel.processed\"]",
+        "label": "Pubsub DLQ pixel.processed"
+      },
+      {
+        "address": "prd:module.pubsub.google_pubsub_subscription.dlq[\"snapshot.requested\"]",
+        "label": "Pubsub DLQ snapshot.requested"
+      },
+      {
+        "address": "prd:module.pubsub.google_pubsub_topic.main[\"discord.command\"]",
+        "label": "Pubsub topic discord.command"
+      },
+      {
+        "address": "prd:module.pubsub.google_pubsub_topic.main[\"pixel.draw\"]",
+        "label": "Pubsub topic pixel.draw"
+      },
+      {
+        "address": "prd:module.pubsub.google_pubsub_topic.main[\"pixel.processed\"]",
+        "label": "Pubsub topic pixel.processed"
+      },
+      {
+        "address": "prd:module.pubsub.google_pubsub_topic.main[\"snapshot.requested\"]",
+        "label": "Pubsub topic snapshot.requested"
+      },
+      {
+        "address": "prd:module.pubsub.google_pubsub_topic.dlq[\"discord.command\"]",
+        "label": "Pubsub DLQ topic discord.command"
+      },
+      {
+        "address": "prd:module.pubsub.google_pubsub_topic.dlq[\"pixel.draw\"]",
+        "label": "Pubsub DLQ topic pixel.draw"
+      },
+      {
+        "address": "prd:module.pubsub.google_pubsub_topic.dlq[\"pixel.processed\"]",
+        "label": "Pubsub DLQ topic pixel.processed"
+      },
+      {
+        "address": "prd:module.pubsub.google_pubsub_topic.dlq[\"snapshot.requested\"]",
+        "label": "Pubsub DLQ topic snapshot.requested"
+      },
+      {
+        "address": "dev:google_artifact_registry_repository.functions",
+        "label": "Artifact registry functions"
+      },
+      {
+        "address": "dev:google_firebaserules_release.firestore",
+        "label": "Firebase rules release"
+      },
+      {
+        "address": "dev:google_firebaserules_ruleset.firestore",
+        "label": "Firebase rules ruleset"
+      },
+      {
+        "address": "dev:google_firestore_database.main",
+        "label": "Firestore database main"
+      },
+      {
+        "address": "dev:google_firestore_field.pixels_t",
+        "label": "Firestore field pixels_t"
+      },
+      {
+        "address": "dev:google_firestore_field.ttl[\"processedBatches\"]",
+        "label": "Firestore field ttl processedBatches"
+      },
+      {
+        "address": "dev:google_firestore_field.ttl[\"userEvents\"]",
+        "label": "Firestore field ttl userEvents"
+      },
+      {
+        "address": "dev:google_firestore_index.pixels_by_tile",
+        "label": "Firestore index pixels_by_tile"
+      },
+      {
+        "address": "dev:google_firestore_index.user_events_by_uid",
+        "label": "Firestore index user_events_by_uid"
+      },
+      {
+        "address": "dev:google_secret_manager_secret.this[\"discord-bot-token\"]",
+        "label": "Secret discord-bot-token"
+      },
+      {
+        "address": "dev:google_secret_manager_secret.this[\"discord-oauth-client-secret\"]",
+        "label": "Secret discord-oauth-client-secret"
+      },
+      {
+        "address": "dev:google_secret_manager_secret.this[\"discord-public-key\"]",
+        "label": "Secret discord-public-key"
+      },
+      {
+        "address": "dev:google_storage_bucket.frontend",
+        "label": "Bucket frontend"
+      },
+      {
+        "address": "dev:google_storage_bucket.functions_source",
+        "label": "Bucket functions source"
+      },
+      {
+        "address": "dev:google_storage_bucket.snapshots",
+        "label": "Bucket snapshots"
+      },
+      {
+        "address": "dev:google_storage_bucket.tiles",
+        "label": "Bucket tiles"
+      },
+      {
+        "address": "dev:google_storage_bucket_object.frontend[\"assets/index-C08dPwDo.css\"]",
+        "label": "Object index-C08dPwDo.css"
+      },
+      {
+        "address": "dev:google_storage_bucket_object.frontend[\"assets/index-CiVFvZGL.js\"]",
+        "label": "Object index-CiVFvZGL.js"
+      },
+      {
+        "address": "dev:google_storage_bucket_object.frontend[\"assets/index-CiVFvZGL.js.map\"]",
+        "label": "Object index-CiVFvZGL.js.map"
+      },
+      {
+        "address": "dev:google_storage_bucket_object.frontend[\"assets/output-DEj_51ro.js\"]",
+        "label": "Object output-DEj_51ro.js"
+      },
+      {
+        "address": "dev:google_storage_bucket_object.frontend[\"assets/output-DEj_51ro.js.map\"]",
+        "label": "Object output-DEj_51ro.js.map"
+      },
+      {
+        "address": "dev:google_storage_bucket_object.frontend[\"index.html\"]",
+        "label": "Object index.html"
+      },
+      {
+        "address": "dev:google_storage_bucket_object.frontend_config",
+        "label": "Object frontend config"
+      },
+      {
+        "address": "dev:google_storage_bucket_object.functions_source",
+        "label": "Object functions source"
+      },
+      {
+        "address": "dev:module.pubsub.google_pubsub_subscription.main[\"discord.command\"]",
+        "label": "Pubsub sub discord.command"
+      },
+      {
+        "address": "dev:module.pubsub.google_pubsub_subscription.main[\"pixel.draw\"]",
+        "label": "Pubsub sub pixel.draw"
+      },
+      {
+        "address": "dev:module.pubsub.google_pubsub_subscription.main[\"pixel.processed\"]",
+        "label": "Pubsub sub pixel.processed"
+      },
+      {
+        "address": "dev:module.pubsub.google_pubsub_subscription.main[\"snapshot.requested\"]",
+        "label": "Pubsub sub snapshot.requested"
+      },
+      {
+        "address": "dev:module.pubsub.google_pubsub_subscription.dlq[\"discord.command\"]",
+        "label": "Pubsub DLQ discord.command"
+      },
+      {
+        "address": "dev:module.pubsub.google_pubsub_subscription.dlq[\"pixel.draw\"]",
+        "label": "Pubsub DLQ pixel.draw"
+      },
+      {
+        "address": "dev:module.pubsub.google_pubsub_subscription.dlq[\"pixel.processed\"]",
+        "label": "Pubsub DLQ pixel.processed"
+      },
+      {
+        "address": "dev:module.pubsub.google_pubsub_subscription.dlq[\"snapshot.requested\"]",
+        "label": "Pubsub DLQ snapshot.requested"
+      },
+      {
+        "address": "dev:module.pubsub.google_pubsub_topic.main[\"discord.command\"]",
+        "label": "Pubsub topic discord.command"
+      },
+      {
+        "address": "dev:module.pubsub.google_pubsub_topic.main[\"pixel.draw\"]",
+        "label": "Pubsub topic pixel.draw"
+      },
+      {
+        "address": "dev:module.pubsub.google_pubsub_topic.main[\"pixel.processed\"]",
+        "label": "Pubsub topic pixel.processed"
+      },
+      {
+        "address": "dev:module.pubsub.google_pubsub_topic.main[\"snapshot.requested\"]",
+        "label": "Pubsub topic snapshot.requested"
+      },
+      {
+        "address": "dev:module.pubsub.google_pubsub_topic.dlq[\"discord.command\"]",
+        "label": "Pubsub DLQ topic discord.command"
+      },
+      {
+        "address": "dev:module.pubsub.google_pubsub_topic.dlq[\"pixel.draw\"]",
+        "label": "Pubsub DLQ topic pixel.draw"
+      },
+      {
+        "address": "dev:module.pubsub.google_pubsub_topic.dlq[\"pixel.processed\"]",
+        "label": "Pubsub DLQ topic pixel.processed"
+      },
+      {
+        "address": "dev:module.pubsub.google_pubsub_topic.dlq[\"snapshot.requested\"]",
+        "label": "Pubsub DLQ topic snapshot.requested"
+      }
+    ],
+    "network": [
+      {
+        "address": "prd:google_api_gateway_api.this",
+        "label": "API gateway api"
+      },
+      {
+        "address": "prd:google_api_gateway_api_config.this",
+        "label": "API gateway config"
+      },
+      {
+        "address": "prd:google_api_gateway_gateway.this",
+        "label": "API gateway gateway"
+      },
+      {
+        "address": "prd:google_compute_backend_bucket.frontend",
+        "label": "Backend bucket frontend"
+      },
+      {
+        "address": "prd:google_compute_firewall.deny_all_ingress",
+        "label": "Firewall deny all ingress"
+      },
+      {
+        "address": "prd:google_compute_global_address.frontend",
+        "label": "Global address frontend"
+      },
+      {
+        "address": "prd:google_compute_global_forwarding_rule.frontend_http",
+        "label": "Forwarding rule frontend http"
+      },
+      {
+        "address": "prd:google_compute_global_forwarding_rule.frontend_https",
+        "label": "Forwarding rule frontend https"
+      },
+      {
+        "address": "prd:google_compute_managed_ssl_certificate.frontend",
+        "label": "SSL cert frontend"
+      },
+      {
+        "address": "prd:google_compute_network.main",
         "label": "Network main"
       },
       {
-        "address": "google_compute_subnetwork.main",
+        "address": "prd:google_compute_ssl_policy.frontend",
+        "label": "SSL policy frontend"
+      },
+      {
+        "address": "prd:google_compute_subnetwork.main",
         "label": "Subnetwork main"
       },
       {
-        "address": "google_compute_subnetwork.runners",
+        "address": "prd:google_compute_subnetwork.runners",
         "label": "Subnetwork runners"
+      },
+      {
+        "address": "prd:google_compute_target_http_proxy.frontend_redirect",
+        "label": "HTTP proxy frontend redirect"
+      },
+      {
+        "address": "prd:google_compute_target_https_proxy.frontend",
+        "label": "HTTPS proxy frontend"
+      },
+      {
+        "address": "prd:google_compute_url_map.frontend",
+        "label": "URL map frontend"
+      },
+      {
+        "address": "prd:google_compute_url_map.frontend_redirect",
+        "label": "URL map frontend redirect"
+      },
+      {
+        "address": "dev:google_api_gateway_api.this",
+        "label": "API gateway api"
+      },
+      {
+        "address": "dev:google_api_gateway_api_config.this",
+        "label": "API gateway config"
+      },
+      {
+        "address": "dev:google_api_gateway_gateway.this",
+        "label": "API gateway gateway"
+      },
+      {
+        "address": "dev:google_compute_backend_bucket.frontend",
+        "label": "Backend bucket frontend"
+      },
+      {
+        "address": "dev:google_compute_firewall.deny_all_ingress",
+        "label": "Firewall deny all ingress"
+      },
+      {
+        "address": "dev:google_compute_global_address.frontend",
+        "label": "Global address frontend"
+      },
+      {
+        "address": "dev:google_compute_global_forwarding_rule.frontend_http",
+        "label": "Forwarding rule frontend http"
+      },
+      {
+        "address": "dev:google_compute_global_forwarding_rule.frontend_https",
+        "label": "Forwarding rule frontend https"
+      },
+      {
+        "address": "dev:google_compute_managed_ssl_certificate.frontend",
+        "label": "SSL cert frontend"
+      },
+      {
+        "address": "dev:google_compute_network.main",
+        "label": "Network main"
+      },
+      {
+        "address": "dev:google_compute_router.runners[0]",
+        "label": "Router runners"
+      },
+      {
+        "address": "dev:google_compute_router_nat.runners[0]",
+        "label": "Router NAT runners"
+      },
+      {
+        "address": "dev:google_compute_ssl_policy.frontend",
+        "label": "SSL policy frontend"
+      },
+      {
+        "address": "dev:google_compute_subnetwork.main",
+        "label": "Subnetwork main"
+      },
+      {
+        "address": "dev:google_compute_subnetwork.runners",
+        "label": "Subnetwork runners"
+      },
+      {
+        "address": "dev:google_compute_target_http_proxy.frontend_redirect",
+        "label": "HTTP proxy frontend redirect"
+      },
+      {
+        "address": "dev:google_compute_target_https_proxy.frontend",
+        "label": "HTTPS proxy frontend"
+      },
+      {
+        "address": "dev:google_compute_url_map.frontend",
+        "label": "URL map frontend"
+      },
+      {
+        "address": "dev:google_compute_url_map.frontend_redirect",
+        "label": "URL map frontend redirect"
       }
     ],
     "observability": []
