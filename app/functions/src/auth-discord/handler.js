@@ -2,18 +2,19 @@
 //
 //   POST  login: Discord code -> our JWT (+ Firebase custom token if enabled),
 //         contract in docs/discord-activity.md §2
-//   GET   public key set (JWKS) the API Gateway uses to verify our JWT
 //   OPTIONS  CORS preflight (API Gateway forwards it, it does not answer it)
 //
 // The method decides, not the path: the gateway may call the function with or
 // without the route path appended. Nothing is persisted, and no token, code,
-// verifier or secret is ever written to the logs.
+// verifier or secret is ever written to the logs. The session JWT is signed by
+// the function's service account (sign.js); the gateway verifies it with the
+// public keys Google publishes for that account.
 
 import { createLogger, correlationIdFrom } from "../lib/log.js";
 import { loadConfig } from "./config.js";
 import { DiscordError, exchangeCode, fetchUser } from "./discord.js";
-import { FirebaseTokenError, createFirebaseSigner } from "./firebase.js";
-import { jwks, signJwt } from "./jwt.js";
+import { createFirebaseSigner } from "./firebase.js";
+import { SigningError, createIamSigner } from "./sign.js";
 
 const CODE = /^[A-Za-z0-9._~-]{1,512}$/;
 const CODE_VERIFIER = /^[A-Za-z0-9._~-]{43,128}$/; // RFC 7636 §4.1
@@ -64,7 +65,8 @@ function setCors(req, res, config) {
  * @param {(line: string) => void} [deps.write] log sink
  */
 export function createHandler({ config, fetch: fetchFn, now = () => Date.now(), write }) {
-  const firebaseToken = config.firebaseCustomToken ? createFirebaseSigner(fetchFn, config.httpTimeoutMs, now) : null;
+  const signer = createIamSigner(fetchFn, config.httpTimeoutMs, now);
+  const firebaseToken = config.firebaseCustomToken ? createFirebaseSigner(signer, now) : null;
 
   async function login(req, res, log) {
     let input;
@@ -89,7 +91,7 @@ export function createHandler({ config, fetch: fetchFn, now = () => Date.now(), 
       const user = await fetchUser(fetchFn, { timeoutMs: config.httpTimeoutMs, accessToken });
 
       const iat = Math.floor(now() / 1000);
-      const token = signJwt(config.signingKey, {
+      const token = await signer.sign({
         iss: config.issuer,
         aud: config.audience,
         sub: user.id,
@@ -111,7 +113,7 @@ export function createHandler({ config, fetch: fetchFn, now = () => Date.now(), 
         log.warn("auth.login.rejected", "Discord rejected the authorization code", { reason: e.reason, upstream_status: e.status, flow });
         return res.status(401).json({ error: "invalid_grant" });
       }
-      if (e instanceof DiscordError || e instanceof FirebaseTokenError) {
+      if (e instanceof DiscordError || e instanceof SigningError) {
         log.error("auth.login.failed", "Upstream call failed", { reason: e.reason, upstream_status: e.status, flow });
         return res.status(502).json({ error: "upstream_error" });
       }
@@ -130,16 +132,13 @@ export function createHandler({ config, fetch: fetchFn, now = () => Date.now(), 
         case "POST":
           res.set("Cache-Control", "no-store");
           return await login(req, res, log);
-        case "GET":
-          res.set("Cache-Control", "public, max-age=300");
-          return res.status(200).json(jwks(config.signingKey));
         case "OPTIONS":
-          res.set("Access-Control-Allow-Methods", "POST, GET");
+          res.set("Access-Control-Allow-Methods", "POST");
           res.set("Access-Control-Allow-Headers", "Content-Type, X-Correlation-Id");
           res.set("Access-Control-Max-Age", "600");
           return res.status(204).end();
         default:
-          res.set("Allow", "POST, GET, OPTIONS");
+          res.set("Allow", "POST, OPTIONS");
           return res.status(405).json({ error: "method_not_allowed" });
       }
     } catch (e) {

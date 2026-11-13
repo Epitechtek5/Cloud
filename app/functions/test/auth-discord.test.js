@@ -1,12 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { createPublicKey, generateKeyPairSync, verify } from "node:crypto";
 import { createHandler, authDiscord } from "../src/auth-discord/handler.js";
 import { loadConfig, parseRedirectUris } from "../src/auth-discord/config.js";
-import { loadSigningKey, signJwt, jwks } from "../src/auth-discord/jwt.js";
-
-const pem = (type, opts) => generateKeyPairSync(type, opts).privateKey.export({ type: "pkcs8", format: "pem" });
-const EC_PEM = pem("ec", { namedCurve: "P-256" });
 
 const SECRET = "client-secret-xyz";
 const CODE = "discordAuthCode123";
@@ -20,7 +15,6 @@ function env(overrides = {}) {
   return {
     DISCORD_CLIENT_ID: "1562814087900037260",
     DISCORD_CLIENT_SECRET: SECRET,
-    JWT_SIGNING_KEY: EC_PEM,
     JWT_ISSUER: "urn:test:auth",
     JWT_AUDIENCE: "urn:test:api",
     JWT_TTL_SECONDS: "600",
@@ -46,7 +40,22 @@ function fakeFetch(routes = {}) {
   return fn;
 }
 
+const SA = "fn-auth-discord@proj.iam.gserviceaccount.com";
+const META = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default";
+
+/** The metadata server and IAM Credentials; `signJwt` receives the request init. */
+const iamRoutes = (signJwt) => ({
+  [`${META}/email`]: () => new Response(SA),
+  [`${META}/token`]: () => json(200, { access_token: "gcp-access-token", expires_in: 3599 }),
+  "https://iamcredentials.googleapis.com/": signJwt,
+});
+
+/** Fake signer: returns the claims it was asked to sign, so tests can read them back. */
+const signedClaims = (init) => json(200, { keyId: "k", signedJwt: `h.${Buffer.from(JSON.parse(init.body).payload).toString("base64url")}.s` });
+const claimsOf = (token) => JSON.parse(Buffer.from(token.split(".")[1], "base64url"));
+
 const discordOk = (scope = "identify") => ({
+  ...iamRoutes(signedClaims),
   "https://discord.com/api/v10/oauth2/token": () =>
     json(200, { access_token: ACCESS, token_type: "Bearer", expires_in: 604800, refresh_token: REFRESH, scope }),
   "https://discord.com/api/v10/users/@me": () => json(200, { id: "42", username: "alice", global_name: "Alice" }),
@@ -79,17 +88,6 @@ async function run({ envOverrides, routes = discordOk(), req }) {
 
 const webBody = (o = {}) => ({ code: CODE, codeVerifier: VERIFIER, redirectUri: WEB_REDIRECT, activity: false, ...o });
 const activityBody = (o = {}) => ({ code: CODE, codeVerifier: VERIFIER, activity: true, ...o });
-
-function decodeAndVerify(token, jwkSet) {
-  const [h, p, s] = token.split(".");
-  const header = JSON.parse(Buffer.from(h, "base64url"));
-  const jwk = jwkSet.keys.find((k) => k.kid === header.kid);
-  assert.ok(jwk, "kid must be in the JWKS");
-  const key = createPublicKey({ key: jwk, format: "jwk" });
-  const opts = header.alg === "ES256" ? { key, dsaEncoding: "ieee-p1363" } : key;
-  assert.ok(verify("sha256", Buffer.from(`${h}.${p}`), opts, Buffer.from(s, "base64url")), "signature must verify");
-  return { header, claims: JSON.parse(Buffer.from(p, "base64url")) };
-}
 
 /** Nothing sensitive may reach the logs, whatever the outcome. */
 function assertNoSecretInLogs(lines, res) {
@@ -124,9 +122,8 @@ describe("POST web flow", () => {
     });
     assert.equal(userCall.init.headers.Authorization, `Bearer ${ACCESS}`);
 
-    const config = loadConfig(env());
-    const { header, claims } = decodeAndVerify(res.body.token, jwks(config.signingKey));
-    assert.equal(header.alg, "ES256");
+    // The gateway checks iss, aud and exp; the signature is Google's (signJwt).
+    const claims = claimsOf(res.body.token);
     assert.equal(claims.iss, "urn:test:auth");
     assert.equal(claims.aud, "urn:test:api");
     assert.equal(claims.sub, "42");
@@ -230,18 +227,7 @@ describe("POST validation and upstream errors", () => {
   });
 });
 
-describe("GET, OPTIONS and other methods", () => {
-  test("GET serves the public key set only", async () => {
-    const { res } = await run({ req: { method: "GET" } });
-    assert.equal(res.statusCode, 200);
-    const [key] = res.body.keys;
-    assert.equal(key.kty, "EC");
-    assert.equal(key.alg, "ES256");
-    assert.equal(key.use, "sig");
-    assert.equal(key.d, undefined, "no private member");
-    assert.match(res.headers["cache-control"], /max-age=300/);
-  });
-
+describe("OPTIONS and other methods", () => {
   test("OPTIONS allows the origins of the redirect allow-list only", async () => {
     const ok = await run({ req: { method: "OPTIONS", headers: { Origin: "https://app.example.com" } } });
     assert.equal(ok.res.statusCode, 204);
@@ -252,10 +238,13 @@ describe("GET, OPTIONS and other methods", () => {
     assert.equal(ko.res.headers["access-control-allow-origin"], undefined);
   });
 
-  test("405 on other methods", async () => {
-    const { res } = await run({ req: { method: "PUT" } });
-    assert.equal(res.statusCode, 405);
-    assert.equal(res.headers.allow, "POST, GET, OPTIONS");
+  test("405 on other methods, GET included (no key set is served any more)", async () => {
+    for (const method of ["PUT", "GET"]) {
+      const { res, calls } = await run({ req: { method } });
+      assert.equal(res.statusCode, 405);
+      assert.equal(res.headers.allow, "POST, OPTIONS");
+      assert.equal(calls.length, 0);
+    }
   });
 
   test("replaces a malformed correlation id", async () => {
@@ -265,31 +254,69 @@ describe("GET, OPTIONS and other methods", () => {
   });
 });
 
-describe("Firebase custom token (FIREBASE_CUSTOM_TOKEN=true)", () => {
-  const SA = "fn-auth-discord@proj.iam.gserviceaccount.com";
-  const META = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default";
-  const firebaseRoutes = (signJwt) => ({
-    ...discordOk(),
-    [`${META}/email`]: () => new Response(SA),
-    [`${META}/token`]: () => json(200, { access_token: "gcp-access-token", expires_in: 3599 }),
-    "https://iamcredentials.googleapis.com/": signJwt,
-  });
-
-  test("signs with the function's own account through IAM signJwt", async () => {
-    let signed;
-    const routes = firebaseRoutes((init) => {
-      signed = JSON.parse(JSON.parse(init.body).payload);
-      return json(200, { keyId: "k", signedJwt: "firebase.custom.token" });
-    });
-    const { res, calls, lines } = await run({ envOverrides: { FIREBASE_CUSTOM_TOKEN: "true" }, routes, req: { body: activityBody() } });
+describe("session JWT signed by the function's own account", () => {
+  test("goes through IAM signJwt with the account found in the metadata server", async () => {
+    let payload;
+    const routes = { ...discordOk(), "https://iamcredentials.googleapis.com/": (init) => ((payload = JSON.parse(init.body).payload), signedClaims(init)) };
+    const { res, calls, lines } = await run({ routes, req: { body: webBody() } });
 
     assert.equal(res.statusCode, 200);
-    assert.equal(res.body.firebaseToken, "firebase.custom.token");
     const signCall = calls.find((c) => c.url.startsWith("https://iamcredentials"));
     assert.equal(signCall.url, `https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${encodeURIComponent(SA)}:signJwt`);
+    assert.equal(signCall.init.method, "POST");
     assert.equal(signCall.init.headers.Authorization, "Bearer gcp-access-token");
     assert.equal(calls.find((c) => c.url.startsWith(META)).init.headers["Metadata-Flavor"], "Google");
-    assert.deepEqual(signed, {
+    // What the gateway checks: x-google-issuer, x-google-audiences, exp; sub is the Discord id.
+    assert.deepEqual(Object.keys(JSON.parse(payload)).sort(), ["aud", "exp", "iat", "iss", "jti", "sub", "username"]);
+    assert.ok(!lines.join("\n").includes("gcp-access-token"));
+    assertNoSecretInLogs(lines, res);
+  });
+
+  test("reads the account and the access token once per instance", async () => {
+    const fetch = fakeFetch(discordOk());
+    const handler = createHandler({ config: loadConfig(env()), fetch, now: () => NOW, write: () => {} });
+    for (let i = 0; i < 3; i++) await handler(fakeReq({ body: webBody() }), fakeRes());
+    const count = (prefix) => fetch.calls.filter((c) => c.url.startsWith(prefix)).length;
+    assert.equal(count(`${META}/email`), 1);
+    assert.equal(count(`${META}/token`), 1);
+    assert.equal(count("https://iamcredentials"), 3);
+  });
+
+  test("502 when signJwt is denied (missing token creator role): no token is issued", async () => {
+    const routes = { ...discordOk(), "https://iamcredentials.googleapis.com/": () => json(403, { error: { message: "denied" } }) };
+    const { res, lines } = await run({ routes, req: { body: webBody() } });
+    assert.equal(res.statusCode, 502);
+    assert.deepEqual(res.body, { error: "upstream_error" });
+    assert.equal(JSON.parse(lines.at(-1)).reason, "sign_jwt_http_error");
+    assertNoSecretInLogs(lines, res);
+  });
+
+  test("502 when the metadata server is unreachable or answers nonsense", async () => {
+    for (const override of [
+      { [`${META}/email`]: () => { throw new TypeError("fetch failed"); } },
+      { [`${META}/token`]: () => json(200, { nope: true }) },
+      { "https://iamcredentials.googleapis.com/": () => json(200, { keyId: "k" }) },
+    ]) {
+      const { res, lines } = await run({ routes: { ...discordOk(), ...override }, req: { body: webBody() } });
+      assert.equal(res.statusCode, 502);
+      assertNoSecretInLogs(lines, res);
+    }
+  });
+});
+
+describe("Firebase custom token (FIREBASE_CUSTOM_TOKEN=true)", () => {
+  test("is signed the same way, with the account as issuer and the Discord id as uid", async () => {
+    const signed = [];
+    const routes = {
+      ...discordOk(),
+      "https://iamcredentials.googleapis.com/": (init) => (signed.push(JSON.parse(JSON.parse(init.body).payload)), json(200, { keyId: "k", signedJwt: `jwt.${signed.length}.sig` })),
+    };
+    const { res, lines } = await run({ envOverrides: { FIREBASE_CUSTOM_TOKEN: "true" }, routes, req: { body: activityBody() } });
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.token, "jwt.1.sig");
+    assert.equal(res.body.firebaseToken, "jwt.2.sig");
+    assert.deepEqual(signed[1], {
       iss: SA,
       sub: SA,
       aud: "https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit",
@@ -300,21 +327,10 @@ describe("Firebase custom token (FIREBASE_CUSTOM_TOKEN=true)", () => {
     assert.ok(!lines.join("\n").includes("gcp-access-token"));
   });
 
-  test("502 when signJwt is denied (missing token creator role)", async () => {
-    const { res, lines } = await run({
-      envOverrides: { FIREBASE_CUSTOM_TOKEN: "true" },
-      routes: firebaseRoutes(() => json(403, { error: { message: "denied" } })),
-      req: { body: webBody() },
-    });
-    assert.equal(res.statusCode, 502);
-    assert.equal(JSON.parse(lines.at(-1)).reason, "sign_jwt_http_error");
-    assertNoSecretInLogs(lines, res);
-  });
-
-  test("disabled by default: no Google call, no firebaseToken", async () => {
+  test("disabled by default: a single signature, no firebaseToken", async () => {
     const { res, calls } = await run({ req: { body: webBody() } });
     assert.equal(res.body.firebaseToken, undefined);
-    assert.ok(calls.every((c) => c.url.startsWith("https://discord.com/")));
+    assert.equal(calls.filter((c) => c.url.startsWith("https://iamcredentials")).length, 1);
   });
 });
 
@@ -327,24 +343,20 @@ describe("configuration", () => {
     assert.equal(parseRedirectUris(undefined).size, 0);
   });
 
-  test("fails on a missing secret or a weak key", () => {
+  test("fails on a missing secret or an out-of-range TTL", () => {
     assert.throws(() => loadConfig(env({ DISCORD_CLIENT_SECRET: "" })), /missing DISCORD_CLIENT_SECRET/);
-    assert.throws(() => loadConfig(env({ JWT_SIGNING_KEY: pem("ec", { namedCurve: "secp256k1" }) })), /P-256 or RSA/);
-    assert.throws(() => loadConfig(env({ JWT_SIGNING_KEY: pem("rsa", { modulusLength: 1024 }) })), /P-256 or RSA/);
     assert.throws(() => loadConfig(env({ JWT_TTL_SECONDS: "86400" })), /JWT_TTL_SECONDS/);
+  });
+
+  test("needs no signing key: the account of the function signs", () => {
+    const config = loadConfig(env());
+    assert.equal(config.signingKey, undefined);
   });
 
   test("the TTL, the timeout and the function name have no default in the code", () => {
     for (const name of ["JWT_TTL_SECONDS", "FUNCTION_NAME", "HTTP_TIMEOUT_MS"]) {
       assert.throws(() => loadConfig(env({ [name]: "" })), new RegExp(`missing ${name}`));
     }
-  });
-
-  test("an RSA key signs RS256 and verifies against its JWKS", () => {
-    const key = loadSigningKey(pem("rsa", { modulusLength: 2048 }));
-    const { header, claims } = decodeAndVerify(signJwt(key, { sub: "42" }), jwks(key));
-    assert.equal(header.alg, "RS256");
-    assert.equal(claims.sub, "42");
   });
 
   test("the entry point answers 500 without leaking anything when misconfigured", async (t) => {
