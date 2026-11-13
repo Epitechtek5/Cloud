@@ -15,6 +15,7 @@ locals {
     "monitoring.googleapis.com",
     "logging.googleapis.com",
     "storage.googleapis.com",
+    "compute.googleapis.com", # frontend load balancer and Cloud CDN
   ])
 }
 

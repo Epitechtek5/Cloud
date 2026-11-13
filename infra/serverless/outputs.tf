@@ -1,7 +1,18 @@
 # Contract with deploy-env.yml: the smoke test curls this URL after the apply.
+# It is also the Discord OAuth2 redirect and the target of the Activity "/" mapping.
 output "app_url" {
+  value       = "https://${local.frontend_domain}/"
+  description = "Public HTTPS URL of the web app (load balancer and Cloud CDN in front of the frontend bucket)"
+}
+
+output "frontend_ip" {
+  value       = google_compute_global_address.frontend.address
+  description = "IP of the frontend load balancer (A record of frontend_domain when a domain is used)"
+}
+
+output "health_url" {
   value       = module.health.uri
-  description = "Public HTTPS entry point of the application (the health function until the API Gateway lands)"
+  description = "Liveness function, public until the API Gateway lands (#60)"
 }
 
 output "functions_source_bucket" {

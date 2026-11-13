@@ -121,8 +121,14 @@ temps réel au pixel près (agrégat) ; à valider que c'est acceptable pour le 
   qui lit GCS (simple, mais la gateway GCP ne met pas en cache) ; (2) la même fonction derrière le CDN/hébergement du front avec
   `Cache-Control` (même origine donc pas de CORS, et les mappings Discord restent simples) ; (3) URLs signées courtes
   (`GET /tiles/{tx}/{ty}/url`, un aller-retour de plus). Recommandation : **(2)**.
+  Préparé par #70 sans être figé : le load balancer du front a un emplacement pour une route `/tiles/*`
+  (`local.frontend_tiles_backend` dans `infra/serverless/frontend.tf`) ; le choix final et la fonction relèvent de #68.
 - **B. Hébergement du front.** `deploy-env.yml` passe `dist/` à Terraform (`app_artifact_dir`) et attend un output `app_url`.
   Qui génère `/config.json` (`env`, `apiBase`, `discordClientId` de l'environnement, config Firebase) à côté de `dist/` ?
+  **Proposé par #70 (provisoire, à valider)** : la stack `infra/serverless` (Terraform) écrit `config.json` à partir des
+  tfvars de l'environnement, à côté du même `dist/` promu de dev à prd. Hébergement : bucket privé derrière un load
+  balancer HTTPS externe global avec Cloud CDN ; `app_url` est l'URL du front. Sans nom de domaine, l'hôte est
+  `<ip>.sslip.io` (voir `infra/serverless/README.md`, « Frontend hosting »). `apiBase` reste vide jusqu'à la gateway (#60).
 - **C. Granularité des tuiles Firestore** (`tile` = 256x256 ici) et fréquence de régénération des rasters (par événement avec debounce, ou
   périodique).
 - **D. Mini-map** : acceptable qu'elle soit approximative ?
