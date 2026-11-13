@@ -157,14 +157,12 @@ resource "google_compute_backend_bucket" "frontend" {
 
 # Private bucket access: the load balancer reads the bucket as its service
 # agent, which Google creates with the first backend bucket of the project.
-data "google_project" "frontend" {
-  project_id = var.project_id
-}
-
+# The project number comes from the bucket: a google_project data source would
+# need the Cloud Resource Manager API at plan time.
 resource "google_storage_bucket_iam_member" "frontend_lb_reader" {
   bucket = google_storage_bucket.frontend.name
   role   = "roles/storage.objectViewer"
-  member = "serviceAccount:service-${data.google_project.frontend.number}@https-lb.iam.gserviceaccount.com"
+  member = "serviceAccount:service-${google_storage_bucket.frontend.project_number}@https-lb.iam.gserviceaccount.com"
 
   depends_on = [google_compute_backend_bucket.frontend]
 }
