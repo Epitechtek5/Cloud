@@ -12,6 +12,7 @@ of each environment: `scripts/bootstrap-state-bucket.sh` creates it (already don
 | `secrets.tf` | Secret Manager **containers**; values are added out of band |
 | `artifacts.tf` | Function source bucket and zip, Artifact Registry repository, build service account |
 | `functions.tf` | One `modules/function` instance per function |
+| `frontend.tf` | Frontend bucket (private), generated `config.json`, HTTPS load balancer with Cloud CDN |
 | `outputs.tf` | `app_url` (deploy smoke test contract) and ids reused by the other issues |
 
 ## Function source
@@ -19,6 +20,41 @@ of each environment: `scripts/bootstrap-state-bucket.sh` creates it (already don
 The pipeline builds `functions.zip` once (`deploy.yml`) and passes it with `TF_VAR_app_artifact_dir`; the same zip
 goes to dev then prd. Without it (PR plans, destroy), the stack zips `app/functions/src` + `package.json` itself
 and prints a `functions_artifact` check warning.
+
+## Frontend hosting
+
+```
+browser / Discord proxy ──HTTPS──> global external Application LB (managed cert, TLS 1.2+)
+                                    ├─ :80  -> 301 to https
+                                    └─ :443 -> Cloud CDN -> backend bucket -> <project>-frontend (private)
+```
+
+- **Same artifact everywhere**: `deploy.yml` builds `app/frontend` once; the stack uploads
+  `${app_artifact_dir}/frontend/**` and writes `config.json` next to it from the tfvars of the environment
+  (`env`, `apiBase`, `discordClientId`, Firebase config; format in `app/frontend/src/runtimeConfig.ts`).
+  PR plans and destroy have no artifact: nothing is uploaded and the `frontend_artifact` check warns (a PR plan
+  therefore shows the frontend objects removed). A local plan uses `app/frontend/dist` if it was built.
+- **Private bucket**: `public_access_prevention = "enforced"`; only the load balancer service agent
+  `service-<project number>@https-lb.iam.gserviceaccount.com` has `roles/storage.objectViewer` on it
+  ([private bucket access](https://cloud.google.com/cdn/docs/setting-up-cdn-with-bucket#enable_private_bucket_access)).
+  That agent exists once the project has a backend bucket, hence the `depends_on`.
+- **Cache**: the CDN follows each object's `Cache-Control` (`USE_ORIGIN_HEADERS`): one year, `immutable`, for
+  the hashed `assets/**`; `no-cache` for `index.html` and `config.json`. A deploy needs no invalidation.
+- **`/`** is rewritten to `/index.html` by the URL map (a bucket has no index page); the query is kept, which the
+  OAuth callback (`?code=&state=`) and the Activity (`?frame_id=`) need.
+- **Domain**: a Google-managed certificate needs a domain whose A record points to the load balancer. Without
+  `frontend_domain`, the stack uses `<a-b-c-d>.sslip.io` (a public DNS that resolves to the IP written in the
+  name). To use a real domain, set `frontend_domain` in the tfvars and create an A record to the `frontend_ip`
+  output; the certificate is replaced (create before destroy).
+- **First deploy of an environment**: the certificate takes up to about an hour to become `ACTIVE`; until then
+  HTTPS fails and the smoke test may be red. Re-run the deploy job once
+  `gcloud compute ssl-certificates list` shows `ACTIVE`.
+- **The IP is the identity**: `destroy.yml` releases the address, so after a destroy and redeploy the sslip.io
+  host changes, and so do the Discord OAuth2 redirect and the Activity `/` mapping
+  ([docs/discord-activity.md](../../docs/discord-activity.md) §1).
+- **Tiles** (open question A, #68): `local.frontend_tiles_backend` adds a `/tiles/*` route to a backend service
+  (serverless NEG of the tile-reader, ingress `internal-and-cloud-load-balancing`) on the same origin and CDN.
+- **API** (#60): `local.frontend_api_base` takes `var.api_base_url` (empty) until the gateway URL is wired there.
 
 ## Adding a function
 

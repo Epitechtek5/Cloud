@@ -13,13 +13,13 @@ Scope demandé : `identify` uniquement. Il y a **une application Discord par env
 
 ## 1. Réglages du Developer Portal (à faire une fois, par application dev/prd)
 
-1. **OAuth2 → Redirects** : ajouter l'URL exacte du front de chaque environnement (et `http://localhost:5173/` pour le dev local). Elle doit être identique au `redirect_uri` envoyé par le front (origine + chemin).
+1. **OAuth2 → Redirects** : ajouter l'URL exacte du front de chaque environnement (et `http://localhost:5173/` pour le dev local). Elle doit être identique au `redirect_uri` envoyé par le front (origine + chemin). C'est l'output `app_url` de la stack `infra/serverless` (`terraform -chdir=infra/serverless output -raw app_url`, avec le `/` final). Sans nom de domaine, son hôte (`<ip>.sslip.io`) change si l'environnement est détruit puis recréé : refaire alors les réglages 1 et 3.
 2. **Activities → Settings** : activer les Activities.
 3. **Activities → URL Mappings** (chaque hôte externe que le front appelle doit y figurer, car la CSP de l'iframe n'autorise que le proxy Discord) :
 
 | Prefix | Target (sans `https://`) | Usage |
 |---|---|---|
-| `/` | hôte d'hébergement du front (CDN) | pages et assets |
+| `/` | hôte d'hébergement du front (CDN), l'hôte de `app_url` | pages et assets |
 | `/api` | hôte de l'API Gateway | `POST /auth/discord`, dessin, etc. |
 | `/firestore` | `firestore.googleapis.com` | temps réel (listeners) |
 | `/identitytoolkit` | `identitytoolkit.googleapis.com` | connexion Firebase par custom token |
