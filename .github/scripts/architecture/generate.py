@@ -29,7 +29,7 @@ Rules:
 def call_model(payload: dict) -> str:
     body = {
         "model": os.environ.get("ARCH_MODEL", "claude-haiku-5-5"),
-        "max_tokens": 4096,
+        "max_tokens": 16000,
         "system": SYSTEM,
         "messages": [{"role": "user", "content": json.dumps(payload, sort_keys=True)}],
     }
@@ -47,6 +47,8 @@ def call_model(payload: dict) -> str:
             reply = json.load(response)
     except urllib.error.HTTPError as error:
         sys.exit(f"Anthropic API error {error.code} (model {body['model']}): {error.read().decode()}")
+    if reply.get("stop_reason") == "max_tokens":
+        sys.exit(f"Anthropic response truncated at max_tokens={body['max_tokens']} (model {body['model']}): raise max_tokens or shrink the input")
     for block in reply.get("content", []):
         if block.get("type") == "text":
             return block["text"]
