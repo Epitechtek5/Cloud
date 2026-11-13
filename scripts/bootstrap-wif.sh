@@ -17,6 +17,44 @@ POOL="github"
 PROVIDER="github"
 DEPLOY_SA="gha-deploy"
 PLAN_SA="gha-plan"
+DEPLOY_IAM_ROLE="ghaDeployIamBindings"
+
+# Project-level roles the deploy account may grant or revoke (and nothing
+# else, so it can never grant itself roles/owner). Add a role here, then
+# re-run this script, before a stack binds it at project level. Never add
+# roles/owner, roles/editor, roles/*Admin or roles/iam.serviceAccountTokenCreator
+# (token creator at project level can impersonate every service account).
+DEPLOY_GRANTABLE_ROLES=(
+  roles/container.defaultNodeServiceAccount # foundation: runner nodes
+  roles/logging.logWriter                   # every function, build account
+  roles/monitoring.metricWriter             # functions, OpenTelemetry metrics
+  roles/cloudtrace.agent                    # every function
+  roles/storage.objectViewer                # build account (with a condition)
+  roles/datastore.user                      # Firestore writers (workers)
+  roles/datastore.viewer                    # Firestore readers
+  roles/eventarc.eventReceiver              # Eventarc triggers
+)
+
+# Resource-level IAM the stacks manage (one service account per function,
+# secrets, buckets, topics, Cloud Run invokers). These cannot be restricted
+# by role like the project policy, but they only reach the resource itself.
+DEPLOY_IAM_PERMISSIONS=(
+  artifactregistry.repositories.getIamPolicy
+  artifactregistry.repositories.setIamPolicy
+  iam.serviceAccounts.getIamPolicy
+  iam.serviceAccounts.setIamPolicy
+  pubsub.subscriptions.getIamPolicy
+  pubsub.subscriptions.setIamPolicy
+  pubsub.topics.getIamPolicy
+  pubsub.topics.setIamPolicy
+  run.services.getIamPolicy
+  run.services.setIamPolicy
+  secretmanager.secrets.getIamPolicy
+  secretmanager.secrets.setIamPolicy
+  storage.buckets.getIamPolicy
+  storage.buckets.setIamPolicy
+)
+
 DEPLOY_K8S_ROLE="ghaDeployK8sRbac"
 
 # Kubernetes RBAC objects the deploy account may manage in the GKE clusters
@@ -94,6 +132,49 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --member "serviceAccount:${DEPLOY_EMAIL}" --role roles/editor --condition=None >/dev/null
 gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --member "serviceAccount:${PLAN_EMAIL}" --role roles/viewer --condition=None >/dev/null
+
+echo ">> IAM bindings the deploy account may manage"
+# roles/editor cannot set any IAM policy, and the stacks give every function
+# and node pool its own least-privilege service account.
+# 1. Project policy: projectIamAdmin, limited by a condition to the roles of
+#    DEPLOY_GRANTABLE_ROLES (outside setIamPolicy the attribute is empty, so
+#    reading the policy stays allowed).
+roles_list="$(printf "'%s', " "${DEPLOY_GRANTABLE_ROLES[@]}")"
+condition_file="$(mktemp)"
+trap 'rm -f "${condition_file}"' EXIT
+cat >"${condition_file}" <<EOF
+title: grantable-roles-only
+description: Deploy pipeline may only grant the roles listed in scripts/bootstrap-wif.sh
+expression: "api.getAttribute('iam.googleapis.com/modifiedGrantsByRole', []).hasOnly([${roles_list%, }])"
+EOF
+# Drop the previous binding first: its condition holds the old role list.
+gcloud projects remove-iam-policy-binding "${PROJECT_ID}" \
+  --member "serviceAccount:${DEPLOY_EMAIL}" --role roles/resourcemanager.projectIamAdmin \
+  --all >/dev/null 2>&1 || true
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+  --member "serviceAccount:${DEPLOY_EMAIL}" --role roles/resourcemanager.projectIamAdmin \
+  --condition-from-file "${condition_file}" >/dev/null
+
+# 2. Resource policies: a custom role with only the get/setIamPolicy
+#    permissions of the resource types the stacks bind.
+permissions="$(IFS=,; echo "${DEPLOY_IAM_PERMISSIONS[*]}")"
+role_state="$(gcloud iam roles describe "${DEPLOY_IAM_ROLE}" --project "${PROJECT_ID}" \
+  --format 'value(deleted)' 2>/dev/null || echo missing)"
+if [ "${role_state}" = "missing" ]; then
+  gcloud iam roles create "${DEPLOY_IAM_ROLE}" --project "${PROJECT_ID}" \
+    --title "GitHub deploy: resource IAM bindings" \
+    --description "IAM policies of the resources managed by the Terraform stacks (scripts/bootstrap-wif.sh)" \
+    --permissions "${permissions}" --stage GA >/dev/null
+else
+  # A deleted custom role keeps its id for 7 days: restore it instead.
+  [ "${role_state}" = "True" ] &&
+    gcloud iam roles undelete "${DEPLOY_IAM_ROLE}" --project "${PROJECT_ID}" >/dev/null
+  gcloud iam roles update "${DEPLOY_IAM_ROLE}" --project "${PROJECT_ID}" \
+    --permissions "${permissions}" --quiet >/dev/null
+fi
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+  --member "serviceAccount:${DEPLOY_EMAIL}" \
+  --role "projects/${PROJECT_ID}/roles/${DEPLOY_IAM_ROLE}" --condition=None >/dev/null
 gcloud storage buckets add-iam-policy-binding "gs://${BUCKET}" --project "${PROJECT_ID}" \
   --member "serviceAccount:${DEPLOY_EMAIL}" --role roles/storage.objectAdmin --condition=None >/dev/null
 # --condition=None is required on re-runs: the bucket policy already holds the
