@@ -31,7 +31,8 @@ These cannot be enforced from the workflows and must be part of the runner infra
   code on the runner network.
 - **No `pull_request_target`** that checks out the code of the PR.
 - **Least-privilege service account** on the runner VMs, and the runners kept in the dedicated `runners` subnet.
-- **Budget alert**: a `google_billing_budget` with notifications on the project.
+- **Budget alert**: done, a monthly `google_billing_budget` per project (credits excluded) alerting the team at
+  50, 90 and 100 % of actual spend and 100 % of forecasted spend. See [infra/billing](../../infra/billing/README.md).
 
 ## Fallback to GitHub-hosted runners
 

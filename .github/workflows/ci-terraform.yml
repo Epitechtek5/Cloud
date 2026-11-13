@@ -27,8 +27,8 @@ jobs:
 
       - name: terraform validate
         run: |
-          # foundation and serverless must exist; access is optional.
-          for stack in foundation serverless access; do
+          # foundation, serverless and billing must exist; access is optional.
+          for stack in foundation serverless billing access; do
             if [ "$stack" = "access" ] && ! ls infra/access/*.tf >/dev/null 2>&1; then
               echo "::notice::infra/access has no .tf files, skipping"
               continue
