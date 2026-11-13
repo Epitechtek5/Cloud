@@ -46,7 +46,7 @@ jobs:
           BRANCH: ${{ github.ref_name }}
         run: |
           if [ "$DRY_RUN" = "true" ]; then
-            npx --yes semantic-release@24 --dry-run --no-ci --branches "$BRANCH"
+            npx --yes -p semantic-release@24 -p conventional-changelog-conventionalcommits@8 semantic-release --dry-run --no-ci --branches "$BRANCH"
           else
-            npx --yes semantic-release@24
+            npx --yes -p semantic-release@24 -p conventional-changelog-conventionalcommits@8 semantic-release
           fi
