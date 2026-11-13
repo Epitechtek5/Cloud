@@ -8,11 +8,6 @@
 // infra/serverless/auth_discord.tf, never at project level). This is what the
 // Admin SDK does too when it runs without a key file.
 
-const METADATA = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default";
-const IAM_CREDENTIALS = "https://iamcredentials.googleapis.com/v1";
-const AUDIENCE = "https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit";
-const TIMEOUT_MS = 5000;
-
 export class FirebaseTokenError extends Error {
   constructor(reason, status = 0) {
     super(reason);
@@ -22,10 +17,10 @@ export class FirebaseTokenError extends Error {
   }
 }
 
-async function request(fetchFn, url, init, reason) {
+async function request(fetchFn, url, init, reason, timeoutMs) {
   let res;
   try {
-    res = await fetchFn(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
+    res = await fetchFn(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
   } catch {
     throw new FirebaseTokenError(`${reason}_unreachable`);
   }
@@ -34,14 +29,14 @@ async function request(fetchFn, url, init, reason) {
 }
 
 /** Signer bound to one instance: caches the account email and its access token. */
-export function createFirebaseSigner(fetchFn, now = () => Date.now()) {
+export function createFirebaseSigner(fetchFn, { metadataUrl, iamCredentialsUrl, audience, timeoutMs }, now = () => Date.now()) {
   let email;
   let cached = { token: "", expiresAt: 0 };
   const metadata = { headers: { "Metadata-Flavor": "Google" } };
 
   async function accessToken() {
     if (cached.expiresAt - 60_000 > now()) return cached.token;
-    const res = await request(fetchFn, `${METADATA}/token`, metadata, "metadata_token");
+    const res = await request(fetchFn, `${metadataUrl}/token`, metadata, "metadata_token", timeoutMs);
     const body = await res.json().catch(() => null);
     if (typeof body?.access_token !== "string") throw new FirebaseTokenError("metadata_token_bad_response", res.status);
     cached ={ token: body.access_token, expiresAt: now() + body.expires_in * 1000 };
@@ -49,19 +44,20 @@ export function createFirebaseSigner(fetchFn, now = () => Date.now()) {
   }
 
   return async function customToken(uid, ttlSeconds) {
-    email ??= (await (await request(fetchFn, `${METADATA}/email`, metadata, "metadata_email")).text()).trim();
+    email ??= (await (await request(fetchFn, `${metadataUrl}/email`, metadata, "metadata_email", timeoutMs)).text()).trim();
     const iat = Math.floor(now() / 1000);
     // Firebase accepts at most one hour; the front exchanges it right away.
-    const claims = { iss: email, sub: email, aud: AUDIENCE, iat, exp: iat + Math.min(ttlSeconds, 3600), uid };
+    const claims = { iss: email, sub: email, aud: audience, iat, exp: iat + Math.min(ttlSeconds, 3600), uid };
     const res = await request(
       fetchFn,
-      `${IAM_CREDENTIALS}/projects/-/serviceAccounts/${encodeURIComponent(email)}:signJwt`,
+      `${iamCredentialsUrl}/projects/-/serviceAccounts/${encodeURIComponent(email)}:signJwt`,
       {
         method: "POST",
         headers: { Authorization: `Bearer ${await accessToken()}`, "Content-Type": "application/json" },
         body: JSON.stringify({ payload: JSON.stringify(claims) }),
       },
       "sign_jwt",
+      timeoutMs,
     );
     const body = await res.json().catch(() => null);
     if (typeof body?.signedJwt !== "string") throw new FirebaseTokenError("sign_jwt_bad_response", res.status);

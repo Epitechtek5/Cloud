@@ -4,12 +4,26 @@
 
 import { loadSigningKey } from "./jwt.js";
 
-const DEFAULT_TTL_SECONDS = 600;
-
 function required(env, name) {
   const value = env[name];
   if (typeof value !== "string" || value.trim() === "") throw new Error(`missing ${name}`);
   return value.trim();
+}
+
+function requiredInt(env, name, min, max) {
+  const n = Number(required(env, name));
+  if (!Number.isInteger(n) || n < min || n > max) throw new Error(`${name} must be ${min}..${max}`);
+  return n;
+}
+
+function requiredUrl(env, name) {
+  const value = required(env, name);
+  try {
+    new URL(value);
+  } catch {
+    throw new Error(`${name} must be a URL`);
+  }
+  return value.replace(/\/+$/, "");
 }
 
 /**
@@ -31,8 +45,7 @@ export function parseRedirectUris(raw) {
 
 export function loadConfig(env = process.env) {
   const redirectUris = parseRedirectUris(env.ALLOWED_REDIRECT_URIS);
-  const ttl = Number(env.JWT_TTL_SECONDS ?? DEFAULT_TTL_SECONDS);
-  if (!Number.isInteger(ttl) || ttl < 60 || ttl > 3600) throw new Error("JWT_TTL_SECONDS must be 60..3600");
+  const firebaseCustomToken = env.FIREBASE_CUSTOM_TOKEN === "true";
 
   return {
     discordClientId: required(env, "DISCORD_CLIENT_ID"),
@@ -40,10 +53,21 @@ export function loadConfig(env = process.env) {
     signingKey: loadSigningKey(required(env, "JWT_SIGNING_KEY")),
     issuer: required(env, "JWT_ISSUER"),
     audience: required(env, "JWT_AUDIENCE"),
-    ttlSeconds: ttl,
+    ttlSeconds: requiredInt(env, "JWT_TTL_SECONDS", 60, 3600),
+    functionName: required(env, "FUNCTION_NAME"),
+    discordApiUrl: requiredUrl(env, "DISCORD_API_URL"),
+    httpTimeoutMs: requiredInt(env, "HTTP_TIMEOUT_MS", 100, 60_000),
     redirectUris,
     // CORS: the web front calls the gateway from the origin it redirects to.
     allowedOrigins: new Set([...redirectUris].map((uri) => new URL(uri).origin)),
-    firebaseCustomToken: env.FIREBASE_CUSTOM_TOKEN === "true",
+    firebaseCustomToken,
+    // Only read when the Firebase custom token is on.
+    firebase: firebaseCustomToken
+      ? {
+          metadataUrl: requiredUrl(env, "GCE_METADATA_URL"),
+          iamCredentialsUrl: requiredUrl(env, "IAM_CREDENTIALS_URL"),
+          audience: required(env, "FIREBASE_TOKEN_AUDIENCE"),
+        }
+      : null,
   };
 }

@@ -23,6 +23,13 @@ function env(overrides = {}) {
     JWT_SIGNING_KEY: EC_PEM,
     JWT_ISSUER: "urn:test:auth",
     JWT_AUDIENCE: "urn:test:api",
+    JWT_TTL_SECONDS: "600",
+    FUNCTION_NAME: "auth-discord",
+    DISCORD_API_URL: "https://discord.com/api/v10",
+    HTTP_TIMEOUT_MS: "5000",
+    GCE_METADATA_URL: "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default",
+    IAM_CREDENTIALS_URL: "https://iamcredentials.googleapis.com/v1",
+    FIREBASE_TOKEN_AUDIENCE: "https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit",
     ALLOWED_REDIRECT_URIS: JSON.stringify([WEB_REDIRECT, "http://localhost:5173/"]),
     ...overrides,
   };
@@ -329,6 +336,18 @@ describe("configuration", () => {
     assert.throws(() => loadConfig(env({ JWT_SIGNING_KEY: pem("ec", { namedCurve: "secp256k1" }) })), /P-256 or RSA/);
     assert.throws(() => loadConfig(env({ JWT_SIGNING_KEY: pem("rsa", { modulusLength: 1024 }) })), /P-256 or RSA/);
     assert.throws(() => loadConfig(env({ JWT_TTL_SECONDS: "86400" })), /JWT_TTL_SECONDS/);
+  });
+
+  test("nothing has a default in the code: each setting must come from the environment", () => {
+    for (const name of ["JWT_TTL_SECONDS", "FUNCTION_NAME", "DISCORD_API_URL", "HTTP_TIMEOUT_MS"]) {
+      assert.throws(() => loadConfig(env({ [name]: "" })), new RegExp(`missing ${name}`));
+    }
+    assert.throws(() => loadConfig(env({ DISCORD_API_URL: "not a url" })), /DISCORD_API_URL must be a URL/);
+    // Google endpoints are only required when the Firebase custom token is on.
+    for (const name of ["GCE_METADATA_URL", "IAM_CREDENTIALS_URL", "FIREBASE_TOKEN_AUDIENCE"]) {
+      assert.doesNotThrow(() => loadConfig(env({ [name]: "" })));
+      assert.throws(() => loadConfig(env({ FIREBASE_CUSTOM_TOKEN: "true", [name]: "" })), new RegExp(`missing ${name}`));
+    }
   });
 
   test("an RSA key signs RS256 and verifies against its JWKS", () => {

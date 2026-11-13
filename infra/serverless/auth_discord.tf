@@ -38,6 +38,47 @@ variable "auth_discord_firebase_custom_token" {
   description = "Also return a Firebase custom token (uid = Discord id). Grants the function token creator on its own service account. Needs Firebase Authentication on the project (not managed here yet)"
 }
 
+variable "auth_jwt_ttl_seconds" {
+  type        = number
+  default     = 600
+  description = "Lifetime of the session JWT, in seconds"
+
+  validation {
+    condition     = var.auth_jwt_ttl_seconds >= 60 && var.auth_jwt_ttl_seconds <= 3600
+    error_message = "auth_jwt_ttl_seconds must be between 60 and 3600."
+  }
+}
+
+variable "auth_discord_http_timeout_ms" {
+  type        = number
+  default     = 5000
+  description = "Timeout of each outgoing call of auth-discord (Discord, metadata server, IAM Credentials), in milliseconds"
+}
+
+variable "discord_api_url" {
+  type        = string
+  default     = "https://discord.com/api/v10"
+  description = "Base URL of the Discord API"
+}
+
+variable "gce_metadata_url" {
+  type        = string
+  default     = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default"
+  description = "Metadata server endpoint of the function's service account (token and email)"
+}
+
+variable "iam_credentials_url" {
+  type        = string
+  default     = "https://iamcredentials.googleapis.com/v1"
+  description = "Base URL of the IAM Credentials API (signJwt for the Firebase custom token)"
+}
+
+variable "firebase_token_audience" {
+  type        = string
+  default     = "https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit"
+  description = "Audience of a Firebase custom token (fixed by Identity Toolkit)"
+}
+
 variable "auth_discord_invokers" {
   type        = list(string)
   default     = []
@@ -46,6 +87,7 @@ variable "auth_discord_invokers" {
 
 locals {
   auth_discord_enabled = var.discord_client_id != ""
+  auth_discord_name    = "auth-discord"
 
   # The API Gateway (#60) checks these two claims (x-google-issuer and
   # x-google-audiences) and the signature (x-google-jwks_uri, served on GET).
@@ -59,7 +101,7 @@ module "auth_discord" {
 
   project_id  = var.project_id
   region      = var.region
-  name        = "auth-discord"
+  name        = local.auth_discord_name
   description = "POST /auth/discord: Discord OAuth2 code exchange, issues the session JWT"
   runtime     = var.functions_runtime
   entry_point = "authDiscord"
@@ -70,12 +112,18 @@ module "auth_discord" {
   build_service_account_id = google_service_account.functions_build.id
 
   environment_variables = {
-    DISCORD_CLIENT_ID     = var.discord_client_id
-    ALLOWED_REDIRECT_URIS = jsonencode(var.auth_discord_redirect_uris)
-    JWT_ISSUER            = local.auth_jwt_issuer
-    JWT_AUDIENCE          = local.auth_jwt_audience
-    JWT_TTL_SECONDS       = "600"
-    FIREBASE_CUSTOM_TOKEN = tostring(var.auth_discord_firebase_custom_token)
+    DISCORD_CLIENT_ID       = var.discord_client_id
+    ALLOWED_REDIRECT_URIS   = jsonencode(var.auth_discord_redirect_uris)
+    JWT_ISSUER              = local.auth_jwt_issuer
+    JWT_AUDIENCE            = local.auth_jwt_audience
+    JWT_TTL_SECONDS         = tostring(var.auth_jwt_ttl_seconds)
+    FUNCTION_NAME           = local.auth_discord_name
+    DISCORD_API_URL         = var.discord_api_url
+    HTTP_TIMEOUT_MS         = tostring(var.auth_discord_http_timeout_ms)
+    FIREBASE_CUSTOM_TOKEN   = tostring(var.auth_discord_firebase_custom_token)
+    GCE_METADATA_URL        = var.gce_metadata_url
+    IAM_CREDENTIALS_URL     = var.iam_credentials_url
+    FIREBASE_TOKEN_AUDIENCE = var.firebase_token_audience
   }
 
   # secretAccessor on these two secrets only, for this function's account only.
@@ -89,7 +137,7 @@ module "auth_discord" {
   ingress  = length(var.auth_discord_invokers) > 0 ? "ALLOW_ALL" : "ALLOW_INTERNAL_ONLY"
   invokers = var.auth_discord_invokers
 
-  # Two Discord calls of at most 5 s each, plus signing.
+  # Two Discord calls of at most auth_discord_http_timeout_ms each, plus signing.
   timeout_seconds = 20
   max_instances   = 3
 

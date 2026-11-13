@@ -15,7 +15,6 @@ import { DiscordError, exchangeCode, fetchUser } from "./discord.js";
 import { FirebaseTokenError, createFirebaseSigner } from "./firebase.js";
 import { jwks, signJwt } from "./jwt.js";
 
-const FUNCTION = "auth-discord";
 const CODE = /^[A-Za-z0-9._~-]{1,512}$/;
 const CODE_VERIFIER = /^[A-Za-z0-9._~-]{43,128}$/; // RFC 7636 §4.1
 
@@ -65,7 +64,7 @@ function setCors(req, res, config) {
  * @param {(line: string) => void} [deps.write] log sink
  */
 export function createHandler({ config, fetch: fetchFn, now = () => Date.now(), write }) {
-  const firebaseToken = config.firebaseCustomToken ? createFirebaseSigner(fetchFn, now) : null;
+  const firebaseToken = config.firebase ? createFirebaseSigner(fetchFn, { ...config.firebase, timeoutMs: config.httpTimeoutMs }, now) : null;
 
   async function login(req, res, log) {
     let input;
@@ -80,13 +79,15 @@ export function createHandler({ config, fetch: fetchFn, now = () => Date.now(), 
 
     try {
       const accessToken = await exchangeCode(fetchFn, {
+        apiUrl: config.discordApiUrl,
+        timeoutMs: config.httpTimeoutMs,
         clientId: config.discordClientId,
         clientSecret: config.discordClientSecret,
         code: input.code,
         codeVerifier: input.codeVerifier,
         redirectUri: input.redirectUri,
       });
-      const user = await fetchUser(fetchFn, accessToken);
+      const user = await fetchUser(fetchFn, { apiUrl: config.discordApiUrl, timeoutMs: config.httpTimeoutMs, accessToken });
 
       const iat = Math.floor(now() / 1000);
       const token = signJwt(config.signingKey, {
@@ -121,7 +122,7 @@ export function createHandler({ config, fetch: fetchFn, now = () => Date.now(), 
 
   return async function handle(req, res) {
     const correlationId = correlationIdFrom(req);
-    const log = createLogger({ function: FUNCTION, correlation_id: correlationId }, write);
+    const log = createLogger({ function: config.functionName, correlation_id: correlationId }, write);
     res.set("X-Correlation-Id", correlationId);
     setCors(req, res, config);
 
@@ -160,7 +161,7 @@ export async function authDiscord(req, res) {
       handler = createHandler({ config: loadConfig(), fetch: globalThis.fetch });
     } catch (e) {
       // Messages from loadConfig name the variable, never its value.
-      createLogger({ function: FUNCTION }).error("auth.config.invalid", "Invalid configuration", { error: String(e?.message).slice(0, 300) });
+      createLogger({ function: process.env.FUNCTION_NAME ?? "unknown" }).error("auth.config.invalid", "Invalid configuration", { error: String(e?.message).slice(0, 300) });
       res.set("Cache-Control", "no-store");
       return res.status(500).json({ error: "server_error" });
     }

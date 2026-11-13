@@ -2,9 +2,6 @@
 // RFC 7636) and the current user (scope `identify`). The access token is only
 // returned to the caller, never stored, and no error carries a response body.
 
-export const DISCORD_API = "https://discord.com/api/v10";
-const TIMEOUT_MS = 5000;
-
 /** Error with a safe, fixed `reason` and the upstream HTTP status, nothing else. */
 export class DiscordError extends Error {
   constructor(reason, status) {
@@ -15,10 +12,10 @@ export class DiscordError extends Error {
   }
 }
 
-async function call(fetchFn, url, init, step) {
+async function call(fetchFn, url, init, step, timeoutMs) {
   let res;
   try {
-    res = await fetchFn(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
+    res = await fetchFn(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
   } catch {
     throw new DiscordError(`${step}_unreachable`, 0);
   }
@@ -36,7 +33,7 @@ async function call(fetchFn, url, init, step) {
 /**
  * @returns {Promise<string>} the Discord access token (scope checked)
  */
-export async function exchangeCode(fetchFn, { clientId, clientSecret, code, codeVerifier, redirectUri }) {
+export async function exchangeCode(fetchFn, { apiUrl, timeoutMs, clientId, clientSecret, code, codeVerifier, redirectUri }) {
   const form = new URLSearchParams({
     client_id: clientId,
     client_secret: clientSecret,
@@ -50,9 +47,10 @@ export async function exchangeCode(fetchFn, { clientId, clientSecret, code, code
 
   const body = await call(
     fetchFn,
-    `${DISCORD_API}/oauth2/token`,
+    `${apiUrl}/oauth2/token`,
     { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: form },
     "token",
+    timeoutMs,
   );
   // body.refresh_token is deliberately ignored: it is dropped with `body`.
   if (typeof body.access_token !== "string" || String(body.token_type).toLowerCase() !== "bearer") {
@@ -64,12 +62,13 @@ export async function exchangeCode(fetchFn, { clientId, clientSecret, code, code
 }
 
 /** @returns {Promise<{id: string, username: string}>} */
-export async function fetchUser(fetchFn, accessToken) {
+export async function fetchUser(fetchFn, { apiUrl, timeoutMs, accessToken }) {
   const body = await call(
     fetchFn,
-    `${DISCORD_API}/users/@me`,
+    `${apiUrl}/users/@me`,
     { method: "GET", headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" } },
     "user",
+    timeoutMs,
   );
   if (typeof body.id !== "string" || !/^\d{1,20}$/.test(body.id) || typeof body.username !== "string") {
     throw new DiscordError("user_bad_response", 200);
