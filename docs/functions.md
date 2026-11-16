@@ -13,6 +13,7 @@ app/functions/
                       e.g. src/discord: Discord interactions proxy (docs/discord-bot.md)
                       src/commands: command worker (docs/discord-bot.md)
                       src/draw: draw worker, the only writer of the grid (below)
+                      src/pixels: web API, POST /pixels and GET /pixels/{x}/{y} (below)
   src/lib/            shared runtime library (below)
   test/               node:test unit tests (test/lib for the library)
   test/emulator/      Firestore tests, run against the emulator (skipped by plain `npm test`)
@@ -99,4 +100,22 @@ Tests: `test/draw` (rate limit window, override, partial batch, pause, replies, 
 `test/emulator/drawStore.test.js` (21 pixels in a minute: 20 accepted + 1 `userEvents`; redelivery, concurrent
 redeliveries and concurrent batches without double counting; two concurrent writers of one pixel; pause;
 override; invalid batch).
+
+## Web API (`src/pixels`, #66)
+
+Behind the API Gateway, which checks the session JWT and forwards its claims in `X-Apigateway-Api-Userinfo`
+(`http.js`, `gatewayUser`: no user → `401`, so a route deployed without `security` fails closed). Each answers its
+own CORS preflight (`ALLOWED_ORIGINS`, the origins of `auth_discord_redirect_uris`).
+
+- `draw-proxy` (`drawProxy.js`), `POST /pixels`: builds the `pixel.draw` event (user = JWT `sub`, never taken from
+  the body; `source: web`), validates it with the shared schema (unknown fields refused), publishes it with the
+  `X-Correlation-Id` and answers `202 {batchId}`. `400` lists the invalid paths, never the values; `503` if Pub/Sub
+  fails. Its account has no Firestore role at all.
+- `pixel-reader` (`pixelReader.js`), `GET /pixels/{x}/{y}`: `200 {x, y, color, author, authorName, ts}`, `404` when
+  never painted or older than `session/state.clearedAt`. `roles/datastore.viewer` only.
+
+Tests: `test/pixels` (401 cases, 400 matrix, 202 event, CORS, 503, reader statuses) and
+`test/emulator/pixelReader.test.js` (draw → read → clear → 404). Live, through the gateway:
+`scripts/test-pixels-api.sh <gateway_url>` (`401` without or with a forged token; with `SESSION_TOKEN`, also
+`400`, `202` and the read back).
 
