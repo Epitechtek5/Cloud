@@ -12,6 +12,7 @@ app/functions/
   src/<function>/     code of one function (proxy or worker), thin, built on src/lib
                       e.g. src/discord: Discord interactions proxy (docs/discord-bot.md)
                       src/commands: command worker (docs/discord-bot.md)
+                      src/draw: draw worker, the only writer of the grid (below)
   src/lib/            shared runtime library (below)
   test/               node:test unit tests (test/lib for the library)
   test/emulator/      Firestore tests, run against the emulator (skipped by plain `npm test`)
@@ -74,3 +75,28 @@ export async function drawProxy(req, res) {
   res.status(202).json({ batchId: event.batchId });
 }
 ```
+
+## Draw worker (`src/draw`, #65)
+
+Consumes `pixel.draw` (web brush batches and `/draw`) through `pixel.draw.sub`. One Firestore transaction per
+batch (`store.js`):
+
+1. reads `processedBatches/{batchId}`, `session/state` and `users/{uid}`; a batch whose marker exists is not
+   applied again (its stored outcome is replayed: `pixel.processed` again, same Discord answer);
+2. `rules.js` decides: everything rejected (`paused`) while paused; otherwise a **fixed window** of 60 s,
+   `limit = users/{uid}.override ?? DEFAULT_RATE_LIMIT` (20), and a batch over the quota is **partially accepted**
+   (the first pixels, duplicates within a batch counted once, last colour wins);
+3. writes each accepted pixel whole, `{x, y, tile, c, a, an, t: serverTimestamp}` (last write wins by server
+   time, never a mix of two draws), the quota `{limit, used, windowStart}`, the rejected pixels in
+   `userEvents/{batchId}` (`reason`, `pixels`, TTL 1 h) and the marker (TTL 8 days).
+
+Then it publishes `pixel.processed` (accepted pixels, rejected with their reason) and edits the `/draw` answer.
+A batch that fails validation but names its author (`batchId`, `user.id`) is recorded as `invalid` in
+`userEvents` and acked; an anonymous broken message answers `400` and ends in `pixel.draw.dlq`. Concurrent
+batches of one user cannot exceed the limit: the transaction locks `users/{uid}` (`PESSIMISTIC` database).
+
+Tests: `test/draw` (rate limit window, override, partial batch, pause, replies, statuses) and
+`test/emulator/drawStore.test.js` (21 pixels in a minute: 20 accepted + 1 `userEvents`; redelivery, concurrent
+redeliveries and concurrent batches without double counting; two concurrent writers of one pixel; pause;
+override; invalid batch).
+

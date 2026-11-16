@@ -18,11 +18,15 @@ module "pubsub" {
     "discord.command" = module.discord_proxy[*].service_account_email
     # /draw goes through the same pipeline as the web.
     "pixel.draw" = [module.command_worker.service_account_email]
-    # /admin clear: one `cleared` signal instead of per-pixel deltas.
-    "pixel.processed"    = [module.command_worker.service_account_email]
+    # Draw worker; command worker for /admin clear (one `cleared` signal).
+    "pixel.processed"    = [module.command_worker.service_account_email, module.draw_worker.service_account_email]
     "snapshot.requested" = [module.command_worker.service_account_email]
   }
   push = {
+    "pixel.draw" = {
+      endpoint        = module.draw_worker.uri
+      service_account = google_service_account.draw_push.email
+    }
     "discord.command" = {
       endpoint        = module.command_worker.uri
       service_account = google_service_account.command_push.email

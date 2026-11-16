@@ -13,7 +13,7 @@ lire ou d'écrire quoi.
 |---|---|---|---|
 | État courant des pixels | Firestore `pixels/{x}_{y}` | worker de dessin (IAM) | navigateur (règles), inspection, rendu des tuiles |
 | Pause globale, génération de la grille | Firestore `session/state` | worker de commandes (IAM) | navigateur, workers |
-| Quota d'un utilisateur | Firestore `users/{uid}` | worker de dessin (IAM) | son propriétaire seulement |
+| Quota d'un utilisateur `{limit, used, windowStart, override}` | Firestore `users/{uid}` | worker de dessin, `override` par le worker de commandes (IAM) | son propriétaire seulement |
 | Pixels refusés | Firestore `userEvents/{id}` (TTL) | worker de dessin (IAM) | son propriétaire seulement |
 | Lots déjà traités | Firestore `processedBatches/{batchId}` (TTL) | worker de dessin (IAM) | workers uniquement |
 | Commandes Discord déjà traitées | Firestore `processedCommands/{interactionId}` (TTL) | worker de commandes (IAM) | workers uniquement |

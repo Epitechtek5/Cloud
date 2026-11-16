@@ -16,9 +16,11 @@ import { decodePushMessage, InvalidPushError } from "./pubsubPush.js";
  * @param {string} options.functionName
  * @param {string | string[]} options.expect  event type(s) handled
  * @param {(message: object, ctx: { correlationId: string, log: object, headers: object }) => Promise<void>} options.handle
+ * @param {(body: object, err: Error, ctx: { log: object }) => Promise<boolean>} [options.onInvalid]
+ *   called for a broken message; returning true acks it (204) instead of 400
  * @param {object} [options.logger]
  */
-export function createPushHandler({ functionName, expect, handle, logger }) {
+export function createPushHandler({ functionName, expect, handle, onInvalid, logger }) {
   return async function pushHandler(req, res) {
     if (req.method !== "POST") return res.status(405).set("Allow", "POST").send("method not allowed");
 
@@ -30,6 +32,12 @@ export function createPushHandler({ functionName, expect, handle, logger }) {
       const { log } = messageContext(req.body?.message?.attributes, { functionName, logger, headers: req.headers });
       // err.message names the invalid paths only, never the values.
       log.error("rejected an invalid message", { reason: err.message, messageId: req.body?.message?.messageId });
+      try {
+        if (onInvalid && (await onInvalid(req.body, err, { log }))) return res.status(204).end();
+      } catch (hookErr) {
+        log.error("cannot record the invalid message, it will be retried", { err: hookErr });
+        return res.status(500).send("retry");
+      }
       return res.status(400).send("invalid message");
     }
 
