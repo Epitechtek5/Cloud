@@ -14,6 +14,7 @@ app/functions/
                       src/commands: command worker (docs/discord-bot.md)
                       src/draw: draw worker, the only writer of the grid (below)
                       src/pixels: web API, POST /pixels and GET /pixels/{x}/{y} (below)
+                      src/snapshot: snapshot worker and notifier (below)
   src/lib/            shared runtime library (below)
   test/               node:test unit tests (test/lib for the library)
   test/emulator/      Firestore tests, run against the emulator (skipped by plain `npm test`)
@@ -44,6 +45,7 @@ app/functions/
 | `grid.js` | Tiles (`tileOf`, `tilesOfRect`, 256x256), `pixelId`, `inGrid`, collection names. |
 | `canvas.js` | `readSession` (`paused`, `clearedAt`), `readRegion` (pixels of a square, newer than the last clear), `renderRegion` (RGBA, scaled). |
 | `png.js` | `encodePng(width, height, rgba)`: PNG encoder on `node:zlib`, no image dependency. |
+| `storage.js` | `getStorage()`: lazy Cloud Storage client. |
 | `discordWebhook.js` | `createInteractionClient()`: `editOriginal` / `followUp` of an interaction (JSON or multipart with files), errors flagged `retryable`. |
 | `snowflake.js` | `snowflakeTime(id)`: creation time of a Discord id. |
 | `tracing.js` | `initTracing()` hook, a no-op until the tracing issue registers the OpenTelemetry bootstrap. |
@@ -118,4 +120,33 @@ Tests: `test/pixels` (401 cases, 400 matrix, 202 event, CORS, 503, reader status
 `test/emulator/pixelReader.test.js` (draw → read → clear → 404). Live, through the gateway:
 `scripts/test-pixels-api.sh <gateway_url>` (`401` without or with a forged token; with `SESSION_TOKEN`, also
 `400`, `202` and the read back).
+
+## Snapshot workflow (`src/snapshot`, #69)
+
+```
+/snapshot -> command worker -> snapshot.requested -> snapshot-worker
+             reads every visible pixel, renders a PNG, creates snapshots/YYYY/MM/DD/<time>_<request>.png
+bucket OBJECT_FINALIZE -> snapshot.ready (storage notification) -> snapshot-notifier
+             signs a V4 URL (IAM signBlob, no key), edits the /snapshot answer with the link
+```
+
+- **What the image shows** (`compose.js`): the 100 000² grid would be 40 GB of RGBA, so the snapshot is the square
+  around the painted area (8 px margin): 1:1 up to 2048 px, otherwise downscaled (most recent pixel of each block),
+  enlarged to at least 512 px. Pixels older than the last `/admin clear` are left out. At most
+  `MAX_SNAPSHOT_PIXELS` (2 million) are read; past that the snapshot is flagged `truncated`.
+- **Timestamped, once**: the name comes from `requestedAt` (the interaction's snowflake time), so a redelivery
+  writes the same name; the upload is create-only (`ifGenerationMatch: 0`), a `412` means "already done" and the
+  notifier is triggered once. The object metadata carries what the notifier needs (request id, author,
+  correlation id, application id and interaction token): it is triggered by the bucket, not by the worker.
+- **Notifier**: edits the deferred `/snapshot` answer (idempotent on redelivery). Link lifetime
+  `SIGNED_URL_TTL_SECONDS` (Terraform `snapshot_url_ttl_seconds`, 1 h by default). The bucket is private
+  (`public_access_prevention = enforced`): without the signature the object answers `403`.
+- **Identities**: `fn-snapshot-worker` has `datastore.viewer` and `storage.objectCreator` on the bucket (no read, no
+  overwrite); `fn-snapshot-notifier` has `storage.objectViewer` on the bucket and `iam.serviceAccountTokenCreator`
+  on itself only. The bucket's lifecycle deletes snapshots after 7 days (dev) or 90 days (prd).
+
+Tests: `test/snapshot` (composition 1:1 and downscaled, object name, metadata, create-only upload, notifier:
+link, ignored events, DLQ, retries, a real V4 URL signed with a throwaway key: `X-Goog-Expires` equals the
+lifetime) and `test/emulator/snapshotStore.test.js`. Live: `scripts/test-snapshot-url.sh '<link>' [--wait]`
+(200 signed, 403 unsigned, refused after expiry).
 

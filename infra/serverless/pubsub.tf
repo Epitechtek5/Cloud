@@ -21,8 +21,18 @@ module "pubsub" {
     # Draw worker; command worker for /admin clear (one `cleared` signal).
     "pixel.processed"    = [module.command_worker.service_account_email, module.draw_worker.service_account_email]
     "snapshot.requested" = [module.command_worker.service_account_email]
+    # Cloud Storage publishes the object-finalized events of the snapshots bucket.
+    "snapshot.ready" = [data.google_storage_project_service_account.this.email_address]
   }
   push = {
+    "snapshot.requested" = {
+      endpoint        = module.snapshot_worker.uri
+      service_account = google_service_account.snapshot_push.email
+    }
+    "snapshot.ready" = {
+      endpoint        = module.snapshot_notifier.uri
+      service_account = google_service_account.notifier_push.email
+    }
     "pixel.draw" = {
       endpoint        = module.draw_worker.uri
       service_account = google_service_account.draw_push.email
