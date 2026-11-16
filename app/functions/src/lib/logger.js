@@ -24,6 +24,7 @@ const FIELD_NAMES = {
   traceId: "trace_id",
   spanId: "span_id",
   userId: "user_id",
+  traceSampled: "trace_sampled",
 };
 
 function normalize(fields) {
@@ -60,6 +61,7 @@ export function createLogger(context = {}, options = {}) {
     if (entry.trace_id && projectId) {
       entry["logging.googleapis.com/trace"] = `projects/${projectId}/traces/${entry.trace_id}`;
       if (entry.span_id) entry["logging.googleapis.com/spanId"] = entry.span_id;
+      if (entry.trace_sampled !== undefined) entry["logging.googleapis.com/trace_sampled"] = entry.trace_sampled;
     }
     write(JSON.stringify(entry), severity);
   }

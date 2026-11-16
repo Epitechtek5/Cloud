@@ -6,6 +6,7 @@
 import { firestoreTypes, toMillis } from "../lib/firestore.js";
 import { COLLECTIONS, pixelId, SESSION_STATE, tileOf } from "../lib/grid.js";
 import { decideBatch } from "./rules.js";
+import { firestoreSpan } from "../lib/trace.js";
 
 // Longer than the Pub/Sub retention (7 days).
 export const BATCH_TTL_MS = 8 * 24 * 3600 * 1000;
@@ -32,7 +33,7 @@ export function createDrawStore(db, { defaultLimit, windowMs, now = Date.now }) 
     async applyBatch(batch) {
       const { FieldValue, Timestamp } = await firestoreTypes();
       const uid = batch.user.id;
-      return db.runTransaction(async (tx) => {
+      return firestoreSpan("transaction draw", () => db.runTransaction(async (tx) => {
         const markerRef = col(COLLECTIONS.processedBatches).doc(batch.batchId);
         const userRef = col(COLLECTIONS.users).doc(uid);
         const [marker, session, user] = await Promise.all([tx.get(markerRef), tx.get(db.doc(SESSION_STATE)), tx.get(userRef)]);
@@ -89,13 +90,13 @@ export function createDrawStore(db, { defaultLimit, windowMs, now = Date.now }) 
         };
         tx.create(markerRef, { uid, outcome, at: FieldValue.serverTimestamp(), expireAt: Timestamp.fromMillis(t + BATCH_TTL_MS) });
         return { duplicate: false, ...outcome };
-      });
+      }));
     },
 
     /** Records a batch refused before the transaction (invalid message) for its author. */
     async rejectInvalid({ batchId, uid, pixels }) {
       const { FieldValue, Timestamp } = await firestoreTypes();
-      await col(COLLECTIONS.userEvents).doc(batchId).set({
+      await firestoreSpan("set userEvents", () => col(COLLECTIONS.userEvents).doc(batchId).set({
         uid,
         type: "rejected",
         reason: "invalid",
@@ -103,7 +104,7 @@ export function createDrawStore(db, { defaultLimit, windowMs, now = Date.now }) 
         pixels,
         t: FieldValue.serverTimestamp(),
         expireAt: Timestamp.fromMillis(now() + USER_EVENT_TTL_MS),
-      });
+      }));
     },
   };
 }

@@ -6,6 +6,7 @@ import { httpContext } from "../lib/context.js";
 import { toMillis } from "../lib/firestore.js";
 import { COLLECTIONS, inGrid, pixelId } from "../lib/grid.js";
 import { cors, gatewayUser } from "./http.js";
+import { firestoreSpan } from "../lib/trace.js";
 
 export const FUNCTION_NAME = "pixel-reader";
 
@@ -42,7 +43,8 @@ export function createPixelReader({ getDb, origins, logger }) {
     if (!inGrid(x, y)) return res.status(400).json({ error: "invalid_request" });
 
     try {
-      const pixel = await readPixel(await getDb(), x, y);
+      const db = await getDb();
+      const pixel = await firestoreSpan("get pixel", () => readPixel(db, x, y));
       if (!pixel) return res.status(404).json({ error: "not_found" });
       return res.status(200).json(pixel);
     } catch (err) {

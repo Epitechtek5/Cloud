@@ -6,6 +6,7 @@
 import { createLogger } from "../lib/logger.js";
 import { isValidCorrelationId, newCorrelationId } from "../lib/correlation.js";
 import { DiscordApiError } from "../lib/discordWebhook.js";
+import { activeTraceIds, extractContext, flushSpans, SpanKind, tracingReady, withSpan } from "../lib/trace.js";
 
 export const FUNCTION_NAME = "snapshot-notifier";
 
@@ -55,11 +56,23 @@ export function createSnapshotNotifier({ signer, discord, ttlSeconds, logger }) 
     const { object } = decoded;
     const meta = object.metadata ?? {};
     const correlationId = isValidCorrelationId(meta.correlationId) ? meta.correlationId : newCorrelationId();
-    const log = base.child({ correlationId, eventType: "snapshot.ready", userId: meta.requestedBy, requestId: meta.requestId });
+    await tracingReady();
+    const status = await withSpan(
+      "snapshot.ready process",
+      { kind: SpanKind.CONSUMER, parent: extractContext({ traceparent: meta.traceparent, tracestate: meta.tracestate }), attributes: { correlation_id: correlationId, "gcp.gcs.bucket": object.bucket } },
+      () => notify(object, meta, correlationId),
+    );
+    await flushSpans();
+    return status === 204 ? res.status(204).end() : res.status(500).send("retry");
+  };
+
+  async function notify(object, meta, correlationId) {
+    const ids = activeTraceIds();
+    const log = base.child({ correlationId, eventType: "snapshot.ready", userId: meta.requestedBy, requestId: meta.requestId, traceId: ids.traceId, spanId: ids.spanId, traceSampled: ids.sampled });
 
     if (!meta.applicationId || !meta.interactionToken) {
       log.info("snapshot without a Discord interaction, nothing to post", { object: object.name });
-      return res.status(204).end();
+      return 204;
     }
 
     try {
@@ -69,17 +82,17 @@ export function createSnapshotNotifier({ signer, discord, ttlSeconds, logger }) 
         content: `📸 Snapshot of ${meta.requestedAt ?? object.timeCreated} (${meta.pixels ?? "?"} pixels): ${url}\nThe link expires in ${minutes(ttlSeconds)}.`,
       });
       log.info("snapshot link posted", { object: object.name, ttlSeconds });
-      return res.status(204).end();
+      return 204;
     } catch (err) {
       if (err instanceof DiscordApiError && !err.retryable) {
         // The interaction token expired (15 min): nobody left to answer.
         log.warn("cannot answer the interaction", { status: err.status, object: object.name });
-        return res.status(204).end();
+        return 204;
       }
       log.error("cannot post the snapshot link, it will be retried", { err, object: object.name });
-      return res.status(500).send("retry");
+      return 500;
     }
-  };
+  }
 }
 
 /**
@@ -90,12 +103,14 @@ export function createSnapshotNotifier({ signer, discord, ttlSeconds, logger }) 
  */
 export function createStorageSigner(storage) {
   return {
-    async sign(bucket, name, ttlSeconds) {
-      const [url] = await storage
-        .bucket(bucket)
-        .file(name)
-        .getSignedUrl({ version: "v4", action: "read", expires: Date.now() + ttlSeconds * 1000 });
-      return url;
+    sign(bucket, name, ttlSeconds) {
+      return withSpan("iam signBlob (V4 signed URL)", { kind: SpanKind.CLIENT, attributes: { "gcp.gcs.bucket": bucket } }, async () => {
+        const [url] = await storage
+          .bucket(bucket)
+          .file(name)
+          .getSignedUrl({ version: "v4", action: "read", expires: Date.now() + ttlSeconds * 1000 });
+        return url;
+      });
     },
   };
 }
