@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { commandWorker, discordProxy, hello, notImplemented } from "../src/index.js";
+import { commandWorker, discordProxy, drawWorker, hello, notImplemented } from "../src/index.js";
 
 test("hello answers 200", () => {
   let status;
@@ -42,4 +42,13 @@ test("exports the command worker, which only accepts Pub/Sub pushes (POST)", asy
   await commandWorker({ method: "GET", headers: {} }, res);
   assert.equal(res.status_, 405);
   assert.equal(res.headers.Allow, "POST");
+});
+
+test("exports the draw worker, which only accepts Pub/Sub pushes (POST)", async () => {
+  const res = { headers: {} };
+  res.set = (k, v) => ((res.headers[k] = v), res);
+  res.status = (code) => ((res.status_ = code), res);
+  res.send = (body) => ((res.body = body), res);
+  await drawWorker({ method: "PUT", headers: {} }, res);
+  assert.equal(res.status_, 405);
 });

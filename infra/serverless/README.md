@@ -13,6 +13,7 @@ of each environment: `scripts/bootstrap-state-bucket.sh` creates it (already don
 | `artifacts.tf` | Function source bucket and zip, Artifact Registry repository, build service account |
 | `functions.tf` | One `modules/function` instance per function |
 | `auth_discord.tf` | `POST /auth/discord` (#67) with its variables and outputs |
+| `draw_worker.tf` | Draw worker (#65): function, push service account, Firestore role, default rate limit |
 | `command_worker.tf` | Command worker (#64): function, push service account, Firestore role, admin variables |
 | `gateway.tf` | API Gateway (#60): gateway service account, API, config, gateway, `gateway-stub` function |
 | `openapi/api.yaml.tftpl` | The OpenAPI 2.0 spec of the gateway, rendered with the function URLs |

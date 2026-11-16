@@ -7,6 +7,9 @@ import { getFirestore } from "./lib/firestore.js";
 import { loadCommandConfig } from "./commands/config.js";
 import { createCommandStore } from "./commands/store.js";
 import { createCommandWorker, FUNCTION_NAME as COMMAND_WORKER } from "./commands/worker.js";
+import { loadDrawConfig } from "./draw/config.js";
+import { createDrawStore } from "./draw/store.js";
+import { createDrawWorker, FUNCTION_NAME as DRAW_WORKER } from "./draw/worker.js";
 
 export { authDiscord } from "./auth-discord/handler.js";
 
@@ -50,4 +53,18 @@ export function commandWorker(req, res) {
     config: loadCommandConfig(),
   });
   return commandHandler(req, res);
+}
+
+// Draw worker (#65), pushed by pixel.draw.sub: the only writer of the grid.
+let drawHandler;
+export function drawWorker(req, res) {
+  if (!drawHandler) {
+    const config = loadDrawConfig();
+    drawHandler = createDrawWorker({
+      getStore: async () => createDrawStore(await getFirestore(), config),
+      publisher: createPublisher({ source: DRAW_WORKER }),
+      discord: createInteractionClient(),
+    });
+  }
+  return drawHandler(req, res);
 }
