@@ -11,12 +11,17 @@ app/functions/
   src/index.js        exports every entry point; Terraform picks one per function (entry_point)
   src/<function>/     code of one function (proxy or worker), thin, built on src/lib
                       e.g. src/discord: Discord interactions proxy (docs/discord-bot.md)
+                      src/commands: command worker (docs/discord-bot.md)
   src/lib/            shared runtime library (below)
   test/               node:test unit tests (test/lib for the library)
+  test/emulator/      Firestore tests, run against the emulator (skipped by plain `npm test`)
+  firebase.json       port of the Firestore emulator used by the tests
 ```
 
-- **Build and test**: `ci-functions.yml` runs `npm run lint`, `npm run test:coverage` (fails under 90 % lines,
-  80 % branches, 90 % functions of `src`), `npm run build` and zips `dist/`.
+- **Build and test**: `ci-functions.yml` runs `npm run lint`, `npm run test:ci` (every test, `test/emulator`
+  included, under the Firestore emulator, with coverage: fails under 90 % lines, 80 % branches, 90 % functions of
+  `src`), `npm run build` and zips `dist/`. Locally: `npm test` (no emulator, Firestore tests skipped) or
+  `npm run test:emulator` (needs Java 21+; `firebase-tools` is fetched by `npx`, not a dependency).
 - **Packaging**: `deploy.yml` builds the same `functions.zip` once and passes it to Terraform
   (`app_artifact_dir`); each function is one `modules/function` instance in `infra/serverless/functions.tf`,
   with its own `entry_point` and its own service account (see `infra/serverless/README.md`).
@@ -32,6 +37,13 @@ app/functions/
 | `publisher.js` | `createPublisher({ source })`: validates the event, publishes it as JSON on the topic named after its type, with the `correlation_id`, `event_type` and `source` attributes. |
 | `pubsubPush.js` | `decodePushMessage(body, { expect })`: decodes and validates a Pub/Sub push request on the worker side; `expect` refuses any event type the worker does not handle. |
 | `secrets.js` | `createSecretReader()`: Secret Manager access, cached in memory per instance (one call per secret, failures not cached, including a failed client import). |
+| `worker.js` | `createPushHandler({ expect, handle })`: HTTP plumbing of a push worker. `204` acks, `400` for a broken message (retries then DLQ), `500` when `handle` throws (retried). |
+| `firestore.js` | `getFirestore()`: lazy Firestore client (emulator when `FIRESTORE_EMULATOR_HOST` is set), `toMillis`. |
+| `grid.js` | Tiles (`tileOf`, `tilesOfRect`, 256x256), `pixelId`, `inGrid`, collection names. |
+| `canvas.js` | `readSession` (`paused`, `clearedAt`), `readRegion` (pixels of a square, newer than the last clear), `renderRegion` (RGBA, scaled). |
+| `png.js` | `encodePng(width, height, rgba)`: PNG encoder on `node:zlib`, no image dependency. |
+| `discordWebhook.js` | `createInteractionClient()`: `editOriginal` / `followUp` of an interaction (JSON or multipart with files), errors flagged `retryable`. |
+| `snowflake.js` | `snowflakeTime(id)`: creation time of a Discord id. |
 | `tracing.js` | `initTracing()` hook, a no-op until the tracing issue registers the OpenTelemetry bootstrap. |
 
 ## Correlation id, end to end

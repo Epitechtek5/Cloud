@@ -12,10 +12,11 @@ lire ou d'écrire quoi.
 | Donnée | Stockage | Écrit par | Lu par |
 |---|---|---|---|
 | État courant des pixels | Firestore `pixels/{x}_{y}` | worker de dessin (IAM) | navigateur (règles), inspection, rendu des tuiles |
-| Pause globale | Firestore `session/state` | worker admin (IAM) | navigateur, workers |
+| Pause globale, génération de la grille | Firestore `session/state` | worker de commandes (IAM) | navigateur, workers |
 | Quota d'un utilisateur | Firestore `users/{uid}` | worker de dessin (IAM) | son propriétaire seulement |
 | Pixels refusés | Firestore `userEvents/{id}` (TTL) | worker de dessin (IAM) | son propriétaire seulement |
 | Lots déjà traités | Firestore `processedBatches/{batchId}` (TTL) | worker de dessin (IAM) | workers uniquement |
+| Commandes Discord déjà traitées | Firestore `processedCommands/{interactionId}` (TTL) | worker de commandes (IAM) | workers uniquement |
 | Raster de chaque tuile | bucket privé `<projet>-tiles`, `{tx}/{ty}.png` | worker de rendu (IAM) | fonction de lecture des tuiles (IAM) |
 | Images `/snapshot` | bucket privé `<projet>-snapshots` | snapshot-worker (IAM) | notifier, qui signe une URL courte |
 
@@ -67,7 +68,29 @@ version exacte du raster.
 - **Pas d'index simple sur `pixels.t`** : `t` ne fait que croître. Un index sur une valeur croissante envoie toutes les
   écritures au même endroit, ce qui plafonne la collection vers 500 écritures/s. Aucune requête n'utilise `t` seul,
   l'index est donc désactivé (`google_firestore_field`) ; l'index composite, lui, commence par `tile` et répartit la charge.
-- **Effacement** (`/admin clear`) : un delta avec `c = -1`, pour que les navigateurs l'appliquent comme le reste.
+- **Effacement** (`/admin clear`) : voir « Effacement de la grille » ci-dessous. Pas de delta par pixel : un seul signal.
+
+### Effacement de la grille (`/admin clear`)
+
+Supprimer jusqu'à 10^10 documents dans une commande ne passe pas à l'échelle (temps, coût, timeout du worker). On
+**change de génération** à la place, en O(1) :
+
+```
+session/state = { paused, clearedAt: <timestamp serveur>, epoch: n + 1, updatedAt, updatedBy }
+```
+
+- Le worker de commandes écrit `clearedAt` et incrémente `epoch` dans une transaction avec son marqueur
+  d'idempotence (`processedCommands/{interactionId}`) : une commande relivrée n'efface pas deux fois.
+- **Un pixel est visible seulement si `t > clearedAt`.** Les deux sont des horodatages serveur, donc comparables.
+  Tous les lecteurs appliquent la règle : rendu des tuiles et `/get` (`src/lib/canvas.js`), inspection
+  `GET /pixels/{x}/{y}` (404), snapshots.
+- Le worker publie un seul `pixel.processed { cleared: true, pixels: [] }` (même `batchId` `clear-<interaction>` à
+  chaque livraison) pour le rendu des tuiles et le temps réel.
+- Le navigateur écoute déjà `session/state` : quand `clearedAt` change, il oublie ses deltas et recharge les rasters
+  (régénérés vides par le worker de rendu).
+- Les anciens documents restent jusqu'à ce que le pixel soit repeint (le `set` du worker de dessin les écrase). Une
+  purge en arrière-plan (lots de suppressions des documents `t <= clearedAt`) est possible plus tard ; elle n'est pas
+  nécessaire à la justesse, seulement au coût de stockage.
 
 ## 4. Snapshots : raster par tuile + deltas, pour un chargement rapide
 

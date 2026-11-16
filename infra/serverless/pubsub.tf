@@ -16,8 +16,18 @@ module "pubsub" {
 
   publishers = {
     "discord.command" = module.discord_proxy[*].service_account_email
+    # /draw goes through the same pipeline as the web.
+    "pixel.draw" = [module.command_worker.service_account_email]
+    # /admin clear: one `cleared` signal instead of per-pixel deltas.
+    "pixel.processed"    = [module.command_worker.service_account_email]
+    "snapshot.requested" = [module.command_worker.service_account_email]
   }
-  push = {}
+  push = {
+    "discord.command" = {
+      endpoint        = module.command_worker.uri
+      service_account = google_service_account.command_push.email
+    }
+  }
 
   # The Pub/Sub service agent (DLQ IAM) only exists once the API is enabled.
   depends_on = [google_project_service.this]

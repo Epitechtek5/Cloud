@@ -96,7 +96,9 @@ polling, aucun pixel perdu entre le raster et l'abonnement**. L'effacement (`/ad
 
 ### État global : `session/state`
 
-`{ paused: boolean, updatedAt }`, écrit par le worker `/admin pause|resume`. Le front désactive les outils quand `paused`.
+`{ paused: boolean, clearedAt, epoch, updatedAt }`, écrit par le worker de commandes (`/admin pause|resume|clear`). Le front
+désactive les outils quand `paused`. Quand `clearedAt` change (`/admin clear`), il oublie ses deltas et recharge les rasters ;
+un pixel dont `t <= clearedAt` est effacé ([data-model.md](data-model.md) §3, « Effacement de la grille »).
 
 ### Par utilisateur : `users/{uid}` et `userEvents/{id}`
 

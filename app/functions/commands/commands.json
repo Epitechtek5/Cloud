@@ -20,8 +20,13 @@
   {
     "name": "get",
     "type": 1,
-    "description": "Get the link to the canvas",
-    "contexts": [0]
+    "description": "Show an image of the canvas (centre of the grid by default)",
+    "contexts": [0],
+    "options": [
+      { "name": "x", "type": 4, "description": "Column of the centre, 0 to 99999", "required": false, "min_value": 0, "max_value": 99999 },
+      { "name": "y", "type": 4, "description": "Row of the centre, 0 to 99999", "required": false, "min_value": 0, "max_value": 99999 },
+      { "name": "size", "type": 4, "description": "Side of the square in pixels, 16 to 512", "required": false, "min_value": 16, "max_value": 512 }
+    ]
   },
   {
     "name": "snapshot",
