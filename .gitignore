@@ -29,6 +29,7 @@ terraform.rc
 !**/audit-exceptions.json
 !docs/architecture/*.json
 !infra/serverless/tests/firestore-rules/firebase.json
+!app/functions/firebase.json
 !app/functions/commands/*.json
 .env
 .env.*
@@ -52,6 +53,9 @@ dist/
 coverage/
 .vite/
 *.local
+
+# Logs of the Firebase emulators (npm run test:emulator)
+*-debug.log
 
 # Fallback zip of the serverless stack (built at plan time)
 infra/serverless/.build/

@@ -30,15 +30,28 @@ jobs:
           cache: npm
           cache-dependency-path: app/functions/package-lock.json
 
+      # The Firestore emulator (tests of the workers) is a Java program.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      # The emulator jar is downloaded by firebase-tools on first use.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-functions-${{ hashFiles('app/functions/package.json') }}
+
       - run: npm ci
 
       - name: Lint
         run: npm run lint
 
-      # Unit tests with coverage of the shared library (src/lib); the run fails
-      # below the thresholds set in package.json (test:coverage).
-      - name: Unit tests and coverage
-        run: npm run test:coverage
+      # Unit tests and the Firestore tests (test/emulator) under the emulator,
+      # with coverage of src; the run fails below the thresholds set in
+      # package.json (test:coverage).
+      - name: Tests and coverage (Firestore emulator)
+        run: npm run test:ci
 
       - name: Build
         run: npm run build

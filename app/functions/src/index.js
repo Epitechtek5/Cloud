@@ -2,6 +2,11 @@
 // function and selects one export with `entry_point`.
 import { createPublisher, createSecretReader, initTracing } from "./lib/index.js";
 import { createDiscordProxy, FUNCTION_NAME as DISCORD_PROXY } from "./discord/proxy.js";
+import { createInteractionClient } from "./lib/discordWebhook.js";
+import { getFirestore } from "./lib/firestore.js";
+import { loadCommandConfig } from "./commands/config.js";
+import { createCommandStore } from "./commands/store.js";
+import { createCommandWorker, FUNCTION_NAME as COMMAND_WORKER } from "./commands/worker.js";
 
 export { authDiscord } from "./auth-discord/handler.js";
 
@@ -31,3 +36,18 @@ export const discordProxy = createDiscordProxy({
     process.env.DISCORD_PUBLIC_KEY ?? secrets.get(process.env.DISCORD_PUBLIC_KEY_SECRET ?? "discord-public-key"),
   publisher: createPublisher({ source: DISCORD_PROXY }),
 });
+
+// Command worker (#64), pushed by discord.command.sub. Built on the first
+// message, not at load time: its configuration (admin role and user ids) is
+// only set on this function. A bad configuration answers 500, so the messages
+// are retried, then dead-lettered, never lost.
+let commandHandler;
+export function commandWorker(req, res) {
+  commandHandler ??= createCommandWorker({
+    getStore: async () => createCommandStore(await getFirestore()),
+    publisher: createPublisher({ source: COMMAND_WORKER }),
+    discord: createInteractionClient(),
+    config: loadCommandConfig(),
+  });
+  return commandHandler(req, res);
+}
