@@ -16,7 +16,8 @@
   "dependencies": {
     "@google-cloud/firestore": "^9.4.1",
     "@google-cloud/pubsub": "^6.4.1",
-    "@google-cloud/secret-manager": "^8.0.0"
+    "@google-cloud/secret-manager": "^8.0.0",
+    "@google-cloud/storage": "^9.0.0"
   },
   "engines": {
     "node": ">=22"

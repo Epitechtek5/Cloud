@@ -1,6 +1,7 @@
 # The channels of the platform (subject 3.1, C06 §3.3, C07 §1.2) and their
-# retention / retry settings. `snapshot.ready` is not here: it is the GCS
-# object event of the snapshot bucket, not a Pub/Sub topic we publish on.
+# retention / retry settings. `snapshot.ready` is published by Cloud Storage
+# itself (object finalized in the snapshots bucket, storage notification in
+# snapshots.tf), not by one of our functions.
 # Values are documented in docs/pubsub.md.
 locals {
   catalog = {
@@ -22,6 +23,11 @@ locals {
     # Snapshot rendering and upload to GCS: slower, fewer retries.
     "snapshot.requested" = {
       ack_deadline_seconds  = 300
+      max_delivery_attempts = 5
+    }
+    # New snapshot object: the notifier signs a URL and posts it (short).
+    "snapshot.ready" = {
+      ack_deadline_seconds  = 60
       max_delivery_attempts = 5
     }
   }
