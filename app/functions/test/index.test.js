@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { commandWorker, discordProxy, drawWorker, hello, notImplemented } from "../src/index.js";
+import { commandWorker, discordProxy, drawProxy, drawWorker, pixelReader, hello, notImplemented } from "../src/index.js";
 
 test("hello answers 200", () => {
   let status;
@@ -51,4 +51,15 @@ test("exports the draw worker, which only accepts Pub/Sub pushes (POST)", async 
   res.send = (body) => ((res.body = body), res);
   await drawWorker({ method: "PUT", headers: {} }, res);
   assert.equal(res.status_, 405);
+});
+
+test("exports the web API functions (POST /pixels, GET /pixels/{x}/{y})", async () => {
+  for (const [fn, method] of [[drawProxy, "DELETE"], [pixelReader, "DELETE"]]) {
+    const res = { headers: {} };
+    res.set = (k, v) => ((res.headers[k] = v), res);
+    res.status = (code) => ((res.status_ = code), res);
+    res.json = (body) => ((res.body = body), res);
+    await fn({ method, headers: {}, get: () => undefined }, res);
+    assert.equal(res.status_, 405);
+  }
 });

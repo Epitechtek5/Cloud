@@ -16,8 +16,8 @@ module "pubsub" {
 
   publishers = {
     "discord.command" = module.discord_proxy[*].service_account_email
-    # /draw goes through the same pipeline as the web.
-    "pixel.draw" = [module.command_worker.service_account_email]
+    # POST /pixels, and /draw through the same pipeline.
+    "pixel.draw" = [module.draw_proxy.service_account_email, module.command_worker.service_account_email]
     # Draw worker; command worker for /admin clear (one `cleared` signal).
     "pixel.processed"    = [module.command_worker.service_account_email, module.draw_worker.service_account_email]
     "snapshot.requested" = [module.command_worker.service_account_email]

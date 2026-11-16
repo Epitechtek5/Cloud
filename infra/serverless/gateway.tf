@@ -41,8 +41,8 @@ locals {
     health               = module.health.uri
     discord_interactions = coalesce(one(module.discord_proxy[*].uri), module.gateway_stub.uri)
     auth_discord         = coalesce(one(module.auth_discord[*].uri), module.gateway_stub.uri)
-    pixels_draw          = module.gateway_stub.uri # POST /pixels (proxy of #66)
-    pixel_get            = module.gateway_stub.uri # GET /pixels/{x}/{y} (proxy of #66)
+    pixels_draw          = module.draw_proxy.uri   # POST /pixels (pixels_api.tf)
+    pixel_get            = module.pixel_reader.uri # GET /pixels/{x}/{y} (pixels_api.tf)
     tiles                = module.gateway_stub.uri # tile-reader (#68), option 1 of question A
   }
 

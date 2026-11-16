@@ -10,6 +10,9 @@ import { createCommandWorker, FUNCTION_NAME as COMMAND_WORKER } from "./commands
 import { loadDrawConfig } from "./draw/config.js";
 import { createDrawStore } from "./draw/store.js";
 import { createDrawWorker, FUNCTION_NAME as DRAW_WORKER } from "./draw/worker.js";
+import { createDrawProxy, FUNCTION_NAME as DRAW_PROXY } from "./pixels/drawProxy.js";
+import { parseOrigins } from "./pixels/http.js";
+import { createPixelReader } from "./pixels/pixelReader.js";
 
 export { authDiscord } from "./auth-discord/handler.js";
 
@@ -23,9 +26,9 @@ export function hello(req, res) {
 }
 
 // Temporary backend of the gateway routes whose function is not delivered yet
-// (POST /pixels, GET /pixels/{x}/{y}): the route, its JWT check and its IAM
-// are already live, the answer is an honest 501. Terraform points each route
-// to its real function as soon as it exists (infra/serverless/gateway.tf).
+// (GET /tiles/...): the route, its JWT check and its IAM are already live, the
+// answer is an honest 501. Terraform points each route to its real function
+// as soon as it exists (infra/serverless/gateway.tf).
 export function notImplemented(req, res) {
   res.set("Cache-Control", "no-store");
   res.status(501).json({ error: "not_implemented" });
@@ -67,4 +70,21 @@ export function drawWorker(req, res) {
     });
   }
   return drawHandler(req, res);
+}
+
+// POST /pixels and GET /pixels/{x}/{y} (#66), behind the API Gateway. Built on
+// the first request: ALLOWED_ORIGINS (CORS) is only set on these functions.
+let drawProxyHandler;
+export function drawProxy(req, res) {
+  drawProxyHandler ??= createDrawProxy({
+    publisher: createPublisher({ source: DRAW_PROXY }),
+    origins: parseOrigins(process.env.ALLOWED_ORIGINS),
+  });
+  return drawProxyHandler(req, res);
+}
+
+let pixelReaderHandler;
+export function pixelReader(req, res) {
+  pixelReaderHandler ??= createPixelReader({ getDb: getFirestore, origins: parseOrigins(process.env.ALLOWED_ORIGINS) });
+  return pixelReaderHandler(req, res);
 }
