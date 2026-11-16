@@ -27,6 +27,8 @@ locals {
     "roles/datastore.owner"                = "Firestore database, indexes and fields"
     "roles/apigateway.admin"               = "API Gateway: API, config and gateway (no key, impersonation or project IAM)"
     "roles/firebaserules.admin"            = "Firestore security rules (ruleset and release)"
+    "roles/logging.configWriter"           = "log-based metrics of the application dashboard (google_logging_metric)"
+    "roles/monitoring.dashboardEditor"     = "Cloud Monitoring dashboards (google_monitoring_dashboard)"
   }
 
   # Project-level roles of gha-plan. Nothing here can change a resource.
