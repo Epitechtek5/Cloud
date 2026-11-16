@@ -4,6 +4,7 @@
 // (event-driven, no synchronous chain). Subject 3.2, C07 §2.
 import { encodePng } from "../lib/png.js";
 import { createPushHandler } from "../lib/worker.js";
+import { injectContext } from "../lib/trace.js";
 import { composeSnapshot, snapshotObjectName } from "./compose.js";
 
 export const FUNCTION_NAME = "snapshot-worker";
@@ -41,6 +42,9 @@ export function createSnapshotWorker({ readPixels, getBucket, now = Date.now, lo
         requestedAt: new Date(requestedAt).toISOString(),
         renderedAt,
         correlationId,
+        // The notifier is triggered by the bucket: the trace context travels
+        // with the object so that its span joins this trace.
+        ...injectContext({}),
         reason: request.reason,
         area: `${image.x0},${image.y0},${image.side}`,
         pixels: String(pixels.length),
