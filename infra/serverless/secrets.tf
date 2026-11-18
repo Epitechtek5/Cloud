@@ -1,32 +1,26 @@
-# Secret containers only. Values are added out of band, never in tfvars or in
-# the state, for example:
-#   printf '%s' "$VALUE" | gcloud secrets versions add discord-bot-token \
-#     --project <project_id> --data-file=-
-# A function reads only the secrets listed in its module's secret_env
+# Secret containers are owned by infra/access (persistent.tf): a destroy of
+# this stack must not lose the values, which are added out of band, never in
+# tfvars or in the state (issue #56). This stack only reads them, and binds
+# each function to the secrets listed in its module's secret_env
 # (roles/secretmanager.secretAccessor on each of those secrets).
 locals {
-  secrets = {
-    discord-public-key          = "Discord application public key, verifies the Ed25519 signature of interactions"
-    discord-bot-token           = "Discord bot token, used by the workers to post follow-ups"
-    discord-oauth-client-secret = "Discord OAuth2 client secret of the web login"
-  }
+  secret_ids = toset(["discord-public-key", "discord-bot-token", "discord-oauth-client-secret"])
 }
 
-resource "google_secret_manager_secret" "this" {
-  for_each = local.secrets
+data "google_secret_manager_secret" "this" {
+  for_each = local.secret_ids
 
   project   = var.project_id
-  secret_id = each.key
+  secret_id = each.value
+}
 
-  annotations = {
-    description = each.value
+# Moved to infra/access: forget them without deleting them (or their values).
+removed {
+  from = google_secret_manager_secret.this
+
+  lifecycle {
+    destroy = false
   }
-
-  replication {
-    auto {}
-  }
-
-  depends_on = [google_project_service.this]
 }
 
 # The deploy pipeline registers the slash commands after the apply (#63,
@@ -34,7 +28,7 @@ resource "google_secret_manager_secret" "this" {
 # token is never a GitHub secret. Only this secret, not project-wide access.
 resource "google_secret_manager_secret_iam_member" "deploy_reads_bot_token" {
   project   = var.project_id
-  secret_id = google_secret_manager_secret.this["discord-bot-token"].secret_id
+  secret_id = data.google_secret_manager_secret.this["discord-bot-token"].secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${coalesce(var.deploy_service_account, "gha-deploy@${var.project_id}.iam.gserviceaccount.com")}"
 }

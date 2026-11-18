@@ -101,7 +101,7 @@ module "auth_discord" {
 
   # secretAccessor on this secret only, for this function's account only.
   secret_env = {
-    DISCORD_CLIENT_SECRET = google_secret_manager_secret.this["discord-oauth-client-secret"].secret_id
+    DISCORD_CLIENT_SECRET = data.google_secret_manager_secret.this["discord-oauth-client-secret"].secret_id
   }
 
   # The API Gateway calls its backends over the internet (it is not an

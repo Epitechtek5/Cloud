@@ -74,6 +74,14 @@ IMPORTS=(
   "google_project_iam_member.plan[\"roles/firebaserules.viewer\"]|${PROJECT_ID} roles/firebaserules.viewer serviceAccount:${PLAN}"
   "google_storage_bucket_iam_member.plan_state|b/${BUCKET} roles/storage.objectViewer serviceAccount:${PLAN}"
   "google_storage_bucket_iam_member.plan_state_locks|b/${BUCKET} roles/storage.objectUser serviceAccount:${PLAN} plan-lock-files"
+  # persistent.tf: created by infra/serverless before #56 moved them here. The
+  # serverless stack forgets them (`removed` blocks) without deleting them.
+  "google_project_service.persistent[\"compute.googleapis.com\"]|${PROJECT_ID}/compute.googleapis.com"
+  "google_project_service.persistent[\"secretmanager.googleapis.com\"]|${PROJECT_ID}/secretmanager.googleapis.com"
+  "google_compute_global_address.frontend|projects/${PROJECT_ID}/global/addresses/frontend"
+  "google_secret_manager_secret.this[\"discord-public-key\"]|projects/${PROJECT_ID}/secrets/discord-public-key"
+  "google_secret_manager_secret.this[\"discord-bot-token\"]|projects/${PROJECT_ID}/secrets/discord-bot-token"
+  "google_secret_manager_secret.this[\"discord-oauth-client-secret\"]|projects/${PROJECT_ID}/secrets/discord-oauth-client-secret"
 )
 
 # People (humans.tf). The values come from the configuration itself (local
