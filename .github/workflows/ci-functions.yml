@@ -56,10 +56,12 @@ jobs:
       - name: Build
         run: npm run build
 
+      # The self-hosted runner has no zip binary: jar (from the JDK installed
+      # above for the emulator) writes a standard zip archive.
       - name: Package
         run: |
           mkdir -p "$RUNNER_TEMP/package"
-          (cd dist && zip -qr "$RUNNER_TEMP/package/functions.zip" .)
+          jar --create --no-manifest --file "$RUNNER_TEMP/package/functions.zip" -C dist .
 
       # Kept for inspection only: PRs never deploy.
       - uses: actions/upload-artifact@v4
