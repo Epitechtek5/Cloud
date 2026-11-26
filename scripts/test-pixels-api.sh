@@ -28,7 +28,7 @@ check() {
 }
 
 batch='{"batchId":"live-check-'"$(date +%s)"'","pixels":[{"x":99990,"y":99990,"color":16711680}]}'
-forged='eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwMTIzNDU2NzgifQ.c2lnbmF0dXJl'
+forged='eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwMTIzNDU2NzgifQ.c2lnbmF0dXJl'  # gitleaks:allow (deliberately forged token, see .gitleaksignore)
 
 check "POST /pixels without token" 401 -X POST -H 'Content-Type: application/json' --data "$batch" "$base/pixels"
 check "POST /pixels with a forged token" 401 -X POST -H 'Content-Type: application/json' -H "Authorization: Bearer $forged" --data "$batch" "$base/pixels"
