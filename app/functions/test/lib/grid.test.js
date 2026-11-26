@@ -23,6 +23,6 @@ test("tilesOfRect lists the covered tiles, clipped to the grid", () => {
 });
 
 test("snowflakeTime decodes the creation time of a Discord id", () => {
-  // Example of the Discord documentation: 175928847299117063 -> 2016-04-30T11:18:25.796Z
+  // Example of the Discord documentation: 175928847299117063 -> 2016-04-30T11:18:25.796Z (gitleaks:allow, public example id)
   assert.equal(new Date(snowflakeTime("175928847299117063")).toISOString(), "2016-04-30T11:18:25.796Z");
 });
