@@ -1,5 +1,10 @@
 # Findings reviewed and accepted as false positives (gitleaks fingerprints:
 # commit:file:rule:line). Each entry says what it is and why it is safe.
+#
+# A fingerprint names the commit that introduced the line, so it only covers
+# the PR scans of the original commits: the repository squash-merges, and the
+# full-history scan on main sees the line in a new commit. Each line listed
+# here therefore also carries an inline `gitleaks:allow` comment.
 
 # The Discord snowflake 175928847299117063 is the public example of the Discord
 # API documentation, used to test snowflakeTime. It is an id, not a secret.
