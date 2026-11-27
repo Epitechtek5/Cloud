@@ -58,9 +58,7 @@ module "draw_worker" {
   concurrency   = 10
 
   depends_on = [
-    google_project_iam_member.functions_build_logs,
-    google_project_iam_member.functions_build_sources,
-    google_artifact_registry_repository_iam_member.functions_build,
+    time_sleep.functions_build_iam,
   ]
 }
 
