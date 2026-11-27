@@ -13,6 +13,11 @@ import { createDrawWorker, FUNCTION_NAME as DRAW_WORKER } from "./draw/worker.js
 import { createDrawProxy, FUNCTION_NAME as DRAW_PROXY } from "./pixels/drawProxy.js";
 import { parseOrigins } from "./pixels/http.js";
 import { createPixelReader } from "./pixels/pixelReader.js";
+import { getStorage } from "./lib/storage.js";
+import { loadNotifierConfig, loadSnapshotWorkerConfig } from "./snapshot/config.js";
+import { createSnapshotNotifier, createStorageSigner } from "./snapshot/notifier.js";
+import { createSnapshotBucket, readVisiblePixels } from "./snapshot/store.js";
+import { createSnapshotWorker } from "./snapshot/worker.js";
 
 export { authDiscord } from "./auth-discord/handler.js";
 
@@ -87,4 +92,32 @@ let pixelReaderHandler;
 export function pixelReader(req, res) {
   pixelReaderHandler ??= createPixelReader({ getDb: getFirestore, origins: parseOrigins(process.env.ALLOWED_ORIGINS) });
   return pixelReaderHandler(req, res);
+}
+
+// Snapshot workflow (#69): the worker renders and stores the image (pushed by
+// snapshot.requested.sub); the bucket's finalize event, through snapshot.ready,
+// triggers the notifier, which posts a signed URL.
+let snapshotWorkerHandler;
+export function snapshotWorker(req, res) {
+  if (!snapshotWorkerHandler) {
+    const config = loadSnapshotWorkerConfig();
+    snapshotWorkerHandler = createSnapshotWorker({
+      readPixels: async () => readVisiblePixels(await getFirestore(), config),
+      getBucket: async () => createSnapshotBucket((await getStorage()).bucket(config.bucket)),
+    });
+  }
+  return snapshotWorkerHandler(req, res);
+}
+
+let snapshotNotifierHandler;
+export async function snapshotNotifier(req, res) {
+  if (!snapshotNotifierHandler) {
+    const { ttlSeconds } = loadNotifierConfig();
+    snapshotNotifierHandler = createSnapshotNotifier({
+      signer: createStorageSigner(await getStorage()),
+      discord: createInteractionClient(),
+      ttlSeconds,
+    });
+  }
+  return snapshotNotifierHandler(req, res);
 }

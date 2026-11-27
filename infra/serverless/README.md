@@ -14,6 +14,7 @@ of each environment: `scripts/bootstrap-state-bucket.sh` creates it (already don
 | `functions.tf` | One `modules/function` instance per function |
 | `auth_discord.tf` | `POST /auth/discord` (#67) with its variables and outputs |
 | `pixels_api.tf` | Web API (#66): `draw-proxy` (`POST /pixels`) and `pixel-reader` (`GET /pixels/{x}/{y}`) |
+| `snapshots.tf` | Snapshot workflow (#69): snapshot worker, bucket notification `snapshot.ready`, notifier with signed URLs |
 | `draw_worker.tf` | Draw worker (#65): function, push service account, Firestore role, default rate limit |
 | `command_worker.tf` | Command worker (#64): function, push service account, Firestore role, admin variables |
 | `gateway.tf` | API Gateway (#60): gateway service account, API, config, gateway, `gateway-stub` function |
