@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   ci-gate:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RUNNER }}
     timeout-minutes: 45
     steps:
       # Keep these filters in sync with the `paths` of each CI workflow.

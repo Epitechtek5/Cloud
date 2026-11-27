@@ -37,3 +37,8 @@ output "runners_scale_set_name" {
   value       = one(helm_release.arc_runner_set[*].name)
   description = "Runner scale set name: the label to put in runs-on / the CI_RUNNER repository variable"
 }
+
+output "runners_trusted_scale_set_name" {
+  value       = one(helm_release.arc_runner_set_trusted[*].name)
+  description = "Trusted runner scale set name (jobs holding credentials): the CI_RUNNER_TRUSTED repository variable"
+}

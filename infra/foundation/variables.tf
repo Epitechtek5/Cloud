@@ -26,7 +26,7 @@ variable "cidr_block" {
 variable "runners_enabled" {
   type        = bool
   default     = false
-  description = "Create the GKE cluster of the self-hosted runners. Only one cluster serves CI (CI_RUNNER points to a single scale set), so only dev enables it"
+  description = "Create the GKE cluster of the self-hosted runners. Only one cluster serves CI (CI_RUNNER and CI_RUNNER_TRUSTED point to its two scale sets), so only dev enables it"
 }
 
 variable "runners_zone" {
@@ -122,5 +122,27 @@ variable "runners_max_runners" {
   validation {
     condition     = var.runners_max_runners >= var.runners_min_runners && var.runners_max_runners > 0
     error_message = "runners_max_runners must be positive and at least runners_min_runners."
+  }
+}
+
+variable "runners_trusted_max_nodes" {
+  type        = number
+  default     = 1
+  description = "Maximum number of nodes of the trusted node pool (jobs holding credentials, never shared with PR jobs). It scales from 0"
+
+  validation {
+    condition     = var.runners_trusted_max_nodes > 0
+    error_message = "runners_trusted_max_nodes must be positive."
+  }
+}
+
+variable "runners_trusted_max_runners" {
+  type        = number
+  default     = 2
+  description = "Maximum number of concurrent trusted runner pods (deploy build, release, architecture). An e2-standard-4 node holds 2"
+
+  validation {
+    condition     = var.runners_trusted_max_runners > 0
+    error_message = "runners_trusted_max_runners must be positive."
   }
 }

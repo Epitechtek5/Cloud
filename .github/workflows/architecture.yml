@@ -4,7 +4,18 @@ name: architecture
 # by hand to test the generation.
 on:
   workflow_call:
+    inputs:
+      runner:
+        description: self-hosted (CI_RUNNER_TRUSTED) or github-hosted (ubuntu-latest)
+        type: string
+        default: self-hosted
   workflow_dispatch:
+    inputs:
+      runner:
+        description: "Runners: self-hosted (CI_RUNNER_TRUSTED) or github-hosted (ubuntu-latest, e.g. while the runners cluster is down)"
+        type: choice
+        options: [self-hosted, github-hosted]
+        default: self-hosted
 
 permissions:
   contents: read
@@ -22,7 +33,7 @@ jobs:
       fail-fast: true
       matrix:
         env: [prd, dev]
-    runs-on: ${{ vars.CI_RUNNER_TRUSTED || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runner == 'github-hosted' && 'ubuntu-latest' || vars.CI_RUNNER_TRUSTED }}
     timeout-minutes: 15
     environment: ${{ matrix.env }}
     permissions:
@@ -64,7 +75,7 @@ jobs:
   # The model call: has the API key, but no cloud credentials.
   generate:
     needs: extract
-    runs-on: ${{ vars.CI_RUNNER_TRUSTED || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runner == 'github-hosted' && 'ubuntu-latest' || vars.CI_RUNNER_TRUSTED }}
     timeout-minutes: 15
     environment: prd
     steps:
@@ -111,7 +122,7 @@ jobs:
   # data (JSON) rendered by our own script, never executed.
   publish:
     needs: generate
-    runs-on: ${{ vars.CI_RUNNER_TRUSTED || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runner == 'github-hosted' && 'ubuntu-latest' || vars.CI_RUNNER_TRUSTED }}
     timeout-minutes: 10
     steps:
       - id: app-token

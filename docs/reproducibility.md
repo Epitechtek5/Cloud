@@ -62,8 +62,10 @@ The address and the secrets move from the serverless state to the access state w
 
 ## Procedure (dev)
 
-The runners cluster lives in dev: while dev is destroyed, checks on the runners (`CI_RUNNER`) queue. Tell the team
-before starting: a merge to `dev` during the destroy queues a deploy (same concurrency group) that re-creates dev as
+The runners cluster lives in dev: while dev is destroyed, jobs on the runners (`CI_RUNNER`, `CI_RUNNER_TRUSTED`)
+queue, so run `scripts/switch-runners.sh github-hosted` first and `scripts/switch-runners.sh self-hosted` once dev is
+back ([runners doc](ci/self-hosted-runners.md#bootstrap-exception-the-jobs-that-create-or-destroy-the-cluster)). Tell
+the team before starting: a merge to `dev` during the destroy queues a deploy (same concurrency group) that re-creates dev as
 soon as the destroy ends (it happened in cycle 2).
 
 1. **Destroy**: Actions → `destroy` → Run workflow on `dev`, `env = dev`, `confirm = destroy-dev`.
