@@ -5,12 +5,14 @@
 #
 # Order, enforced by the references and depends_on below:
 #   cluster + node pool + NAT -> namespaces, LimitRange, NetworkPolicy
-#   -> controller -> scale set
+#   -> controller, GitHub App secret (runners_secrets.tf) -> scale set
 # A destroy walks it backwards: the scale set is uninstalled while the
 # controller, the nodes and the NAT still exist, so the controller removes the
 # scale set registration from GitHub (finalizer) before it goes away itself.
 #
-# Not managed here: the GitHub App secret (see docs/ci/self-hosted-runners.md).
+# The GitHub App secret is synced from Secret Manager by External Secrets
+# (runners_secrets.tf); its values are added out of band, see
+# docs/ci/self-hosted-runners.md.
 
 locals {
   arc_chart_repository = "oci://ghcr.io/actions/actions-runner-controller-charts"
@@ -20,11 +22,11 @@ locals {
   # scale set chart cannot discover the controller by itself.
   arc_controller_service_account = "arc-gha-rs-controller"
   # Kubernetes Secret holding the GitHub App id, installation id and private
-  # key, created out of band in the runners namespace.
+  # key, written by External Secrets in the runners namespace.
   arc_github_secret = "arc-github-app"
   runners_values    = "${path.module}/../../k8s/runners"
 
-  runners_namespaces = var.runners_enabled ? toset([local.arc_namespace, local.runners_namespace]) : toset([])
+  runners_namespaces = var.runners_enabled ? toset([local.arc_namespace, local.runners_namespace, local.eso_namespace]) : toset([])
 }
 
 resource "kubernetes_namespace_v1" "runners" {
@@ -183,10 +185,12 @@ resource "helm_release" "arc_runner_set" {
   timeout = 600
 
   # The controller must be running (it reconciles the scale set and removes it
-  # from GitHub on uninstall), and the runner pods must never start without
+  # from GitHub on uninstall, with the GitHub App secret, which must therefore
+  # be uninstalled after it), and the runner pods must never start without
   # their LimitRange and NetworkPolicy.
   depends_on = [
     helm_release.arc_controller,
+    helm_release.arc_github_secret,
     kubernetes_limit_range_v1.runners,
     kubernetes_network_policy_v1.runners_egress,
     kubernetes_network_policy_v1.runners_deny_ingress,

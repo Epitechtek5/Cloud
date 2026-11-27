@@ -10,10 +10,14 @@
 # - the Secret Manager containers: their values are added by hand, never in
 #   tfvars or in the state. Destroyed with the workload, the values are lost and
 #   the next apply fails (a function cannot start on a secret with no version).
-#   Secret Manager is free up to 6 active versions per billing account.
+#   Secret Manager is free up to 6 active versions per billing account. The
+#   GitHub App of the self-hosted runners is kept the same way (issue #54):
+#   External Secrets copies it into the runners cluster at every deploy, so a
+#   destroy -> apply brings the runners back with no `kubectl create secret`.
 #
 # infra/serverless only reads them (data sources, frontend.tf and secrets.tf);
 # it gave them up with `removed` blocks, so its destroy leaves them in place.
+# infra/foundation reads the runner ones (runners_secrets.tf).
 
 locals {
   persistent_services = toset([
@@ -21,11 +25,21 @@ locals {
     "secretmanager.googleapis.com", # secret containers
   ])
 
-  secrets = {
+  discord_secrets = {
     discord-public-key          = "Discord application public key, verifies the Ed25519 signature of interactions"
     discord-bot-token           = "Discord bot token, used by the workers to post follow-ups"
     discord-oauth-client-secret = "Discord OAuth2 client secret of the web login"
   }
+
+  # Only where the runners cluster exists (dev). The names are the ones
+  # infra/foundation/runners_secrets.tf reads.
+  runner_secrets = var.runners_enabled ? {
+    arc-github-app-id              = "App id of the GitHub App the self-hosted runners register with (ARC)"
+    arc-github-app-installation-id = "Installation id of that GitHub App on the repository"
+    arc-github-app-private-key     = "PEM private key of that GitHub App"
+  } : {}
+
+  secrets = merge(local.discord_secrets, local.runner_secrets)
 }
 
 resource "google_project_service" "persistent" {

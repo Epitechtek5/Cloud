@@ -10,7 +10,7 @@ environment (prefix `access`).
 | `service_accounts.tf` | `gha-deploy` and `gha-plan`, and who may impersonate them (`roles/iam.workloadIdentityUser`) |
 | `roles.tf` | What each account may do, every role with its reason |
 | `humans.tf` | Team and instructor on the project, instructor on the billing account, GitHub collaborators |
-| `persistent.tf` | What a destroy of the workload must keep: the frontend IP and the Discord secret containers ([reproducibility](../../docs/reproducibility.md)) |
+| `persistent.tf` | What a destroy of the workload must keep: the frontend IP, the Discord and runner GitHub App secret containers ([reproducibility](../../docs/reproducibility.md)) |
 | `<env>.tfvars` | Project, environment, state bucket |
 | `<env>.local.tfvars` | Team emails, billing account (git-ignored, see `local.tfvars.example`) |
 | `import.sh` | One-shot adoption of what existed before the stack (`bootstrap-wif.sh` resources, access granted by hand) |

@@ -2,7 +2,7 @@
 
 The GitHub Actions runners run as ephemeral pods on a private GKE cluster, managed by
 [Actions Runner Controller](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners-with-actions-runner-controller)
-(ARC, runner scale sets). Tracked in issue #44.
+(ARC, runner scale sets). Tracked in issue #44; the GitHub App credentials come from Secret Manager (issue #54).
 
 ## Architecture
 
@@ -23,7 +23,8 @@ GitHub  <--- long poll (HTTPS) ---  arc-systems: controller + listener
 | Network | `infra/foundation/main.tf` | `runners` subnet + secondary ranges for pods and services |
 | Cluster | `infra/foundation/gke.tf` | private zonal GKE, DNS-based control plane endpoint, Workload Identity, Dataplane V2 network policy, Cloud NAT, bounded node pool |
 | Runners | `infra/foundation/runners.tf` | namespaces, LimitRange, NetworkPolicy, ARC controller and scale set (`helm_release`, pinned chart version) |
-| Helm values | `k8s/runners/*-values.yaml` | static values of the two charts; Terraform adds the per-environment ones (names, `minRunners` / `maxRunners`) |
+| GitHub App secret | `infra/access/persistent.tf`, `infra/foundation/runners_secrets.tf` | Secret Manager containers (kept across a destroy), Google SA `arc-secrets`, Workload Identity binding, External Secrets Operator (pinned chart), SecretStore + ExternalSecret |
+| Helm values | `k8s/runners/*-values.yaml`, `k8s/runners/github-app-secret/` | static values of the charts and the local chart of the SecretStore / ExternalSecret; Terraform adds the per-environment ones (names, `minRunners` / `maxRunners`, project, cluster) |
 
 Everything is applied by Terraform through the pipeline: a release tag deploys the cluster, then the controller, then
 the scale set, on dev then prd (`deploy.yml` → `deploy-env.yml`), and every PR plans it (`ci-terraform.yml`).
@@ -50,14 +51,61 @@ a role with more rights than `roles/container.developer` gives. In practice the 
 inside the runners cluster, and nothing outside it; the cluster only hosts the runners.
 
 Helm records its releases in **ConfigMaps** (`helm_driver = "configmap"`), not in Secrets: that is what lets the
-read-only plan account refresh them. The values hold no credential, the GitHub App key stays in its own Secret.
+read-only plan account refresh them. The values hold no credential: the GitHub App key stays in Secret Manager and in
+the Secret that External Secrets writes.
 
 ### Order and destroy
 
-Terraform applies cluster + node pool + NAT → namespaces, LimitRange, NetworkPolicy → controller → scale set.
-`destroy.yml` walks the same graph backwards: the scale set is uninstalled while the controller, the nodes and
-the NAT still run, so the controller deletes the scale set registration from GitHub (Settings → Actions →
-Runners) before being uninstalled itself. No registration is left behind.
+Terraform applies cluster + node pool + NAT → namespaces, LimitRange, NetworkPolicy → controller and GitHub App
+secret (External Secrets) → scale set. `destroy.yml` walks the same graph backwards: the scale set is uninstalled
+while the controller, the GitHub App secret, the nodes and the NAT still exist, so the controller deletes the scale
+set registration from GitHub (Settings → Actions → Runners) before being uninstalled itself. No registration is left
+behind. The Secret Manager containers are not in this stack: their values survive the destroy, and the next apply
+syncs them again.
+
+## GitHub App secret (Secret Manager)
+
+ARC reads the GitHub App id, installation id and private key from the Kubernetes Secret `arc-github-app` in
+`arc-runners`. Nobody creates it by hand: [External Secrets Operator](https://external-secrets.io) writes it from
+Secret Manager at every deploy, and keeps it in sync (`refreshInterval: 1h`).
+
+```
+Secret Manager: arc-github-app-id, arc-github-app-installation-id, arc-github-app-private-key   (infra/access)
+        |  roles/secretmanager.secretAccessor on these 3 secrets only
+Google SA arc-secrets@<project>.iam.gserviceaccount.com                                          (infra/foundation)
+        |  roles/iam.workloadIdentityUser for <project>.svc.id.goog[arc-runners/arc-secrets-reader] only
+KSA arc-runners/arc-secrets-reader (no pod runs as it, no automounted token)
+        |  TokenRequest by the External Secrets controller, exchanged through GKE Workload Identity
+SecretStore gcp-secret-manager + ExternalSecret arc-github-app  -->  Secret arc-github-app  -->  ARC
+```
+
+- **No service account key** anywhere: Workload Identity only.
+- **No value in Git, tfvars or the Terraform state**: the containers are created by Terraform, the versions are added
+  with `gcloud`; `infra/foundation` only reads their metadata (data sources), and no output exposes them.
+- **External Secrets is scoped to `arc-runners`** (`scopedNamespace`, `scopedRBAC`): a Role there instead of
+  ClusterRoles, only the SecretStore and ExternalSecret reconcilers, no ClusterSecretStore, no PushSecret, no
+  webhook. Its own pod (namespace `external-secrets`) has no Google identity.
+- **Kept across a destroy**: the containers live in `infra/access/persistent.tf` (dev only, `runners_enabled`), which
+  `destroy.yml` never touches. After a destroy + apply the runners come back with no manual step.
+
+### Who can read it (checks)
+
+```bash
+# IAM: only arc-secrets reads the secret (plus the project Owners), only one KSA can act as arc-secrets.
+gcloud secrets get-iam-policy arc-github-app-private-key --project <project_id>
+gcloud iam service-accounts get-iam-policy arc-secrets@<project_id>.iam.gserviceaccount.com
+
+# RBAC: the runner pods (their service account is created by the scale set chart) cannot read Secrets.
+kubectl -n arc-runners get pods -o jsonpath='{.items[*].spec.serviceAccountName}'
+kubectl auth can-i get secrets -n arc-runners --as=system:serviceaccount:arc-runners:<runner service account>   # no
+kubectl auth can-i get secrets -n arc-runners --as=system:serviceaccount:arc-runners:default                   # no
+kubectl auth can-i get secrets -n arc-runners --as=system:serviceaccount:arc-runners:arc-secrets-reader        # no
+kubectl -n arc-runners get externalsecret arc-github-app      # STATUS SecretSynced, READY True
+```
+
+The secret is readable in the cluster by the ARC controller (it copies it for the listener in `arc-systems`) and by
+External Secrets, which writes it. A container escape on a runner node could still reach it: that residual risk is
+the one already described for the privileged `dind` sidecar (see below).
 
 ## Install
 
@@ -68,21 +116,22 @@ Runners) before being uninstalled itself. No registration is left behind.
    are enabled by Terraform (`infra/foundation/apis.tf`).
 3. **Deploy** through the usual release flow. The cluster only exists in dev (`runners_enabled = true` in
    `dev.tfvars`): the runners are a single scale set, so a prd cluster would be billed for nothing.
-4. **Create the GitHub App secret, once per cluster.** It is the only manual step left (issue #54 moves it to
-   Secret Manager). The scale set waits for it: the listener starts as soon as the secret exists. The DNS
-   endpoint needs no authorized network, only your IAM access:
+4. **Store the GitHub App credentials in Secret Manager, once per project.** A project Owner applies
+   `infra/access` (it creates the three empty containers, `runners_enabled = true` in its `dev.tfvars`), then adds
+   the values. They go from your shell straight to Secret Manager, never into a file of the repository:
 
    ```bash
-   gcloud container clusters get-credentials huiledecloud-dev-runners --dns-endpoint \
-     --zone europe-west1-b --project <project_id>
-   kubectl -n arc-runners create secret generic arc-github-app \
-     --from-literal=github_app_id=<app id> \
-     --from-literal=github_app_installation_id=<installation id> \
-     --from-file=github_app_private_key=./app.pem
+   P=<project_id>
+   printf '%s' '<app id>'          | gcloud secrets versions add arc-github-app-id --project "$P" --data-file=-
+   printf '%s' '<installation id>' | gcloud secrets versions add arc-github-app-installation-id --project "$P" --data-file=-
+   gcloud secrets versions add arc-github-app-private-key --project "$P" --data-file=./app.pem
+   rm ./app.pem   # the key now only exists in Secret Manager (GitHub only keeps its fingerprint)
    ```
 
-   The private key only exists in that Kubernetes secret; never commit it. A destroy deletes the namespace and
-   the secret with it: create it again after the next deploy.
+   This must be done before the deploy that carries #54: `infra/foundation` reads the containers and its plan fails
+   while they do not exist. The deploy then syncs them into the cluster; nothing is created with `kubectl`, and a
+   destroy keeps them. On a cluster that still has the hand-made `arc-github-app` Secret, External Secrets takes it
+   over; if the ExternalSecret reports a conflict instead, delete the old Secret and it is written again at once.
 5. **Switch the workflows**, after the fork PR setting of the next section: set the `CI_RUNNER` repository variable
    to the scale set name (`huiledecloud-dev-runners`, the `runners_scale_set_name` output) for the untrusted jobs
    (CI on PRs). A scale set is selected by its name in `runs-on`.
@@ -118,6 +167,7 @@ bootstrap loop: keep the fallback until the runners are validated.
 | Dedicated subnet | nodes in the `runners` subnet, no public IP |
 | No access to the node identity | `GKE_METADATA` (Workload Identity): pods cannot use the node service account |
 | Contained network | NetworkPolicy: ingress denied, egress to the internet only (no private ranges) |
+| No exposed credential | GitHub App key in Secret Manager, synced by External Secrets through Workload Identity (no SA key); only the `arc-secrets` SA reads it, only one KSA can act as that SA |
 
 Still to do outside this change: the budget alert, the fork PR setting below, and removing the
 `|| 'ubuntu-latest'` fallback once the runners are live.
@@ -144,7 +194,25 @@ HELM_DRIVER=configmap helm -n arc-runners list          # installed scale set (r
 - **Scale**: change `runners_max_runners` (and `runners_max_nodes` first, see the sizing note in
   `k8s/runners/runner-set-values.yaml`) in the tfvars, then release.
 - **Upgrade ARC or the runner**: bump `runners_arc_version` (both charts move together) or the image tag in
-  `runner-set-values.yaml`, then release. The PR plan shows the Helm diff.
+  `runner-set-values.yaml`, then release. The PR plan shows the Helm diff. Same for External Secrets with
+  `runners_eso_version`.
+- **Rotate the GitHub App private key** (no downtime: a GitHub App accepts several keys at once). Same procedure for
+  the app id or the installation id (after a reinstall of the app):
+  1. GitHub → organization settings → GitHub Apps → the runners app → *Generate a private key*.
+  2. Add it as a new version: `gcloud secrets versions add arc-github-app-private-key --project <project_id>
+     --data-file=./new.pem`, then delete the local file.
+  3. Sync without waiting for the hourly refresh, then restart the listener so it signs with the new key (the
+     controller recreates it):
+
+     ```bash
+     kubectl -n arc-runners annotate externalsecret arc-github-app force-sync="$(date +%s)" --overwrite
+     kubectl -n arc-runners get externalsecret arc-github-app          # SecretSynced
+     kubectl -n arc-systems delete pod -l app.kubernetes.io/component=runner-scale-set-listener
+     ```
+
+  4. Check that a job runs, then delete the old key in GitHub and disable the old version
+     (`gcloud secrets versions disable <old version> --secret arc-github-app-private-key --project <project_id>`).
+     A leaked key is rotated the same way, deleting the old key in GitHub right after step 2.
 - **Spot preemption**: a job running on a preempted node fails and must be re-run. The ARC controller and
   listener run on the same Spot node: when it is preempted, queued jobs wait until they are rescheduled. Set
   `runners_spot = false` if that becomes a problem.
