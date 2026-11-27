@@ -8,13 +8,13 @@
 #   scripts/switch-runners.sh <self-hosted|github-hosted> [owner/repo]
 #
 # The scale set names are the runners_scale_set_name and
-# runners_trusted_scale_set_name outputs of infra/foundation (dev); override
+# runners_trusted_scale_set_name outputs of infra/foundation (prd); override
 # them with SCALE_SET / TRUSTED_SCALE_SET if the cluster name changes.
 set -euo pipefail
 
 MODE="${1:?mode required (self-hosted or github-hosted)}"
 REPO="${2:-Epitechtek5/Cloud}"
-SCALE_SET="${SCALE_SET:-huiledecloud-dev-runners}"
+SCALE_SET="${SCALE_SET:-huiledecloud-prd-runners}"
 TRUSTED_SCALE_SET="${TRUSTED_SCALE_SET:-${SCALE_SET}-trusted}"
 
 case "${MODE}" in

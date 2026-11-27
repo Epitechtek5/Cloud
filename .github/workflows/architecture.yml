@@ -28,7 +28,7 @@ jobs:
   # names leave this job (attribute values may be sensitive and are dropped).
   extract:
     name: extract (${{ matrix.env }})
-    # prd holds the serverless stack; the runners cluster only exists in dev.
+    # Both hold the serverless stack; the runners cluster only exists in prd.
     strategy:
       fail-fast: true
       matrix:

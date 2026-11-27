@@ -13,7 +13,7 @@ on:
         type: string
         required: true
       # Only the guard follows it: the destroy job always runs on GitHub-hosted
-      # runners. github-hosted by default, since destroying dev removes the
+      # runners. github-hosted by default, since destroying prd removes the
       # runners themselves.
       runner:
         description: "Runners: self-hosted (CI_RUNNER_TRUSTED) or github-hosted (ubuntu-latest, e.g. while the runners cluster is down)"

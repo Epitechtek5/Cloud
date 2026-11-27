@@ -31,7 +31,7 @@ locals {
     discord-oauth-client-secret = "Discord OAuth2 client secret of the web login"
   }
 
-  # Only where the runners cluster exists (dev). The names are the ones
+  # Only where the runners cluster exists (prd). The names are the ones
   # infra/foundation/runners_secrets.tf reads.
   runner_secrets = var.runners_enabled ? {
     arc-github-app-id              = "App id of the GitHub App the self-hosted runners register with (ARC)"

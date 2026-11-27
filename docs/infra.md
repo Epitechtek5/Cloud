@@ -46,13 +46,13 @@ public access prevention, object versioning). It is the only resource outside th
 | --- | --- | --- |
 | VPC `huiledecloud-<env>-vpc` | custom mode; subnet `10.x.1.0/24` (general) and `10.x.2.0/24` (runners, with secondary ranges for pods and services), private Google access, flow logs | one VPC per project, nothing shared between dev and prd (`10.0.0.0/16` dev, `10.1.0.0/16` prd) |
 | Firewall | explicit `deny-all-ingress` at priority 65534 | nothing reaches the VPC unless a more specific rule allows it |
-| GKE `huiledecloud-dev-runners` | zonal (`europe-west1-b`), REGULAR channel, **private nodes**, Workload Identity, Dataplane V2 (network policies), DNS-based control plane endpoint, IP endpoint closed (empty authorized networks) | zonal on purpose: a regional cluster would run the node pool in 3 zones (min/max are per zone) and pay the management fee, while one zonal cluster per billing account is covered by the GKE free tier; the control plane is reached through IAM only, so the GitHub-hosted deploy jobs need no allowed IP |
+| GKE `huiledecloud-prd-runners` (prd only) | zonal (`europe-west9-b`), REGULAR channel, **private nodes**, Workload Identity, Dataplane V2 (network policies), DNS-based control plane endpoint, IP endpoint closed (empty authorized networks) | zonal on purpose: a regional cluster would run the node pool in 3 zones (min/max are per zone) and pay the management fee, while one zonal cluster per billing account is covered by the GKE free tier; the control plane is reached through IAM only, so the GitHub-hosted deploy jobs need no allowed IP |
 | Node pool `runners` | `e2-standard-4` Spot, **autoscaling 1 → 3 nodes**, shielded nodes, `GKE_METADATA`, dedicated node service account | node autoscaling is what the subject asks for (not only pod scaling); Spot divides the cost; 3 nodes is the cost ceiling |
 | Cloud NAT + router | auto-allocated IP, runners subnet only, error logging | private nodes reach GitHub and the Google APIs outbound; nothing can come in |
-| ARC (Helm, by Terraform) | `gha-runner-scale-set-controller` in `arc-systems`, scale sets `huiledecloud-dev-runners` (PR jobs, 0 → 4 ephemeral runners) and `huiledecloud-dev-runners-trusted` (jobs holding credentials, 0 → 2, own tainted node pool from 0 node) in `arc-runners`, LimitRange, NetworkPolicies (egress to the Internet only, ingress denied) | one pod per job, deleted when the job ends: no state or credential shared between jobs |
+| ARC (Helm, by Terraform) | `gha-runner-scale-set-controller` in `arc-systems`, scale sets `huiledecloud-prd-runners` (PR jobs, 0 → 4 ephemeral runners) and `huiledecloud-prd-runners-trusted` (jobs holding credentials, 0 → 2, own tainted node pool from 0 node) in `arc-runners`, LimitRange, NetworkPolicies (egress to the Internet only, ingress denied) | one pod per job, deleted when the job ends: no state or credential shared between jobs |
 
-The cluster only exists in dev (`runners_enabled = true` in `dev.tfvars`): its two scale sets serve both
-environments, so a prd cluster would be billed for nothing.
+The cluster only exists in prd (`runners_enabled = true` in `prd.tfvars`, since #55): its two scale sets serve the
+CI of both environments, and the destroy and re-apply cycles of dev never take the CI down.
 
 ## CI/CD (`.github/workflows`)
 
@@ -78,7 +78,7 @@ Runner selection (#55): every job runs on our runners, untrusted jobs (PR CI) on
 hold credentials on `vars.CI_RUNNER_TRUSTED`, a second scale set on its own tainted node pool. No fallback: an unset
 variable fails the run. `scripts/switch-runners.sh github-hosted|self-hosted` switches everything without a commit, and
 the manual workflows have a `runner` input. `deploy-env` and the `destroy` job always run on GitHub-hosted runners:
-they create and destroy the runners' own cluster. While the dev cluster is destroyed, switch to `github-hosted`,
+they create and destroy the runners' own cluster. While the prd cluster is destroyed, switch to `github-hosted`,
 otherwise every job waits for a runner that does not exist ([runners doc](ci/self-hosted-runners.md#switching-runners)).
 
 ## Design choices to defend
@@ -104,7 +104,8 @@ needs a person (outside GCP, see [`reproducibility.md`](reproducibility.md)):
 - the runners' GitHub App secret, a Kubernetes secret created by hand in the new cluster ([runners doc](ci/self-hosted-runners.md), Install §4);
 - the new API Gateway host in the Discord Activity URL mapping (`/api`) and, once `discord-proxy` is on, the
   Interactions Endpoint URL;
-- `CI_RUNNER` and `CI_RUNNER_TRUSTED`, back to the scale sets once the runners are up (`scripts/switch-runners.sh self-hosted`).
+- after a destroy of **prd** only (the runners cluster lives there): `CI_RUNNER` and `CI_RUNNER_TRUSTED`, back to the
+  scale sets once the runners are up (`scripts/switch-runners.sh self-hosted`).
 
 On a brand-new environment (or after the resources of `persistent.tf` were deleted), apply `infra/access` and add the
 secret values **before** the first deploy: `infra/serverless` reads the IP and the secrets with data sources.

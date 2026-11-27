@@ -114,10 +114,11 @@ the one already described for the privileged `dind` sidecar (see below).
 2. **Give the deploy account the Kubernetes RBAC role** (`ghaDeployK8sRbac`) by applying
    `infra/access` on the project (Owner needed, see `infra/access/README.md`). The `container` and `cloudresourcemanager` APIs
    are enabled by Terraform (`infra/foundation/apis.tf`).
-3. **Deploy** through the usual release flow. The cluster only exists in dev (`runners_enabled = true` in
-   `dev.tfvars`): one cluster (two scale sets) serves both environments, so a prd cluster would be billed for nothing.
+3. **Deploy** through the usual release flow. The cluster only exists in prd (`runners_enabled = true` in
+   `prd.tfvars`, since #55): one cluster (two scale sets) serves the CI of both environments, and dev, which is
+   destroyed and re-created for the reproducibility checks, never takes the CI down with it.
 4. **Store the GitHub App credentials in Secret Manager, once per project.** A project Owner applies
-   `infra/access` (it creates the three empty containers, `runners_enabled = true` in its `dev.tfvars`), then adds
+   `infra/access` (it creates the three empty containers, `runners_enabled = true` in its `prd.tfvars`), then adds
    the values. They go from your shell straight to Secret Manager, never into a file of the repository:
 
    ```bash
@@ -139,10 +140,10 @@ the one already described for the privileged `dind` sidecar (see below).
 
 Every job of every workflow runs on our runners by default (#55). Two variables, two trust levels, two scale sets:
 
-| Variable | Scale set (dev, `infra/foundation` output) | Nodes | Used by |
+| Variable | Scale set (prd, `infra/foundation` output) | Nodes | Used by |
 | --- | --- | --- | --- |
-| `CI_RUNNER` | `huiledecloud-dev-runners` (`runners_scale_set_name`) | `runners` pool, shared with the ARC controller | every PR job: `ci-*`, `pr-title`, `check-source-branch`, `ci-gate`, the Terraform plan |
-| `CI_RUNNER_TRUSTED` | `huiledecloud-dev-runners-trusted` (`runners_trusted_scale_set_name`) | `runners-trusted` pool, tainted, 0 node when idle | jobs holding credentials: `deploy` (build), `release`, `architecture`, `wif-isolation`, the `destroy` guard |
+| `CI_RUNNER` | `huiledecloud-prd-runners` (`runners_scale_set_name`) | `runners` pool, shared with the ARC controller | every PR job: `ci-*`, `pr-title`, `check-source-branch`, `ci-gate`, the Terraform plan |
+| `CI_RUNNER_TRUSTED` | `huiledecloud-prd-runners-trusted` (`runners_trusted_scale_set_name`) | `runners-trusted` pool, tainted, 0 node when idle | jobs holding credentials: `deploy` (build), `release`, `architecture`, `wif-isolation`, the `destroy` guard |
 
 There is no fallback in the workflows: an unset variable makes the run fail at once (empty `runs-on`) instead of
 running somewhere else. Two ways to go to GitHub-hosted runners, none of them a commit:
@@ -155,7 +156,7 @@ running somewhere else. Two ways to go to GitHub-hosted runners, none of them a 
   `gh workflow run deploy.yml --ref dev -f runner=github-hosted`. A push-triggered run has no input and follows
   `CI_RUNNER_TRUSTED`; `deploy` passes its input to `architecture`.
 
-Where a job ran is in its log, *Set up job* → *Runner name* (`huiledecloud-dev-runners-...` for ours), or with
+Where a job ran is in its log, *Set up job* → *Runner name* (`huiledecloud-prd-runners-...` for ours), or with
 `gh api repos/Epitechtek5/Cloud/actions/runs/<run id>/jobs --jq '.jobs[] | [.name, .runner_name] | @tsv'`.
 
 The `plan` job of `ci-terraform.yml` stays on `CI_RUNNER` on purpose: it runs the Terraform of the PR (providers,
@@ -177,15 +178,45 @@ delete the pod running it in the middle of `terraform destroy` (deadlock: the jo
 apply that replaces the cluster or a node pool would do the same. The `destroy` guard follows the `runner` input,
 `github-hosted` by default.
 
-The remaining loop is the `deploy` build (trusted pool) on a dev without cluster: it would wait for a runner that
-does not exist. So:
+Destroying and re-creating **dev** does not touch the runners: their cluster is in prd. The remaining loop is
+**prd** without its cluster (first deploy, or after a destroy of prd): the `deploy` build (trusted pool) would wait
+for a runner that does not exist. So:
 
-1. **Before destroying dev**: `scripts/switch-runners.sh github-hosted` (PR checks would queue otherwise), then run
-   `destroy` (`runner = github-hosted`, the default).
-2. **First deploy, or re-creation of dev**: with the variables on `ubuntu-latest`, the push to `dev` deploys as usual;
-   or, without touching the variables, `gh workflow run deploy.yml --ref dev -f runner=github-hosted`.
+1. **Before destroying prd**: `scripts/switch-runners.sh github-hosted` (every job would queue otherwise), then run
+   `destroy` (`env = prd`, `runner = github-hosted`, the default).
+2. **First deploy, or re-creation of prd**: with the variables on `ubuntu-latest`, the release tag deploys as usual;
+   or, without touching the variables, `gh workflow run deploy.yml --ref <vX.Y.Z tag> -f runner=github-hosted`
+   (still behind the prd reviewers).
 3. **Once the deploy is green** (`kubectl -n arc-systems get pods` shows both listeners):
    `scripts/switch-runners.sh self-hosted`.
+
+### Moving the cluster from dev to prd (once, #55)
+
+The cluster used to live in dev. Setting `runners_enabled = false` in dev cannot be applied as is: the Helm and
+Kubernetes providers lose their cluster host in the same plan that has to uninstall the releases, so the plan
+fails. The move is therefore done with a destroy of dev, which uses the hosts recorded in the state:
+
+1. **CI on GitHub-hosted runners** for the whole move: `scripts/switch-runners.sh github-hosted` (already the case
+   while `CI_RUNNER` is `ubuntu-latest`).
+2. **prd Secret Manager** (project Owner): apply `infra/access` on prd (`runners_enabled = true` in its `prd.tfvars`
+   creates the three containers), then copy the values from dev, straight from one project to the other:
+
+   ```bash
+   for s in arc-github-app-id arc-github-app-installation-id arc-github-app-private-key; do
+     gcloud secrets versions access latest --secret "$s" --project sage-inquiry-512409-h3 \
+       | gcloud secrets versions add "$s" --project huiledecloud-cloudnative-prd --data-file=-
+   done
+   ```
+
+   Until then the PR plan of `prd / foundation` fails: `infra/foundation` reads the containers.
+3. **Destroy dev before merging**, with the code that still has the cluster there:
+   `gh workflow run destroy.yml --ref dev -f env=dev -f confirm=destroy-dev`. The controller removes the dev scale
+   sets from GitHub on the way.
+4. **Merge**: the deploy of `dev` re-creates dev without any runner.
+5. **Release**: the tag deploys prd, cluster and scale sets included, on GitHub-hosted runners.
+6. **Switch**: `scripts/switch-runners.sh self-hosted` once both listeners are up in prd.
+7. **Clean up dev** (project Owner): apply `infra/access` on dev (`runners_enabled = false` now) to delete the
+   three old containers. Only after step 3: the destroy of dev reads them.
 
 ## How it covers the runner guardrails
 

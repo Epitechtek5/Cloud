@@ -26,17 +26,17 @@ variable "cidr_block" {
 variable "runners_enabled" {
   type        = bool
   default     = false
-  description = "Create the GKE cluster of the self-hosted runners. Only one cluster serves CI (CI_RUNNER and CI_RUNNER_TRUSTED point to its two scale sets), so only dev enables it"
+  description = "Create the GKE cluster of the self-hosted runners. Only one cluster serves CI (CI_RUNNER and CI_RUNNER_TRUSTED point to its two scale sets), so only prd enables it"
 }
 
 variable "runners_zone" {
   type        = string
   default     = ""
-  description = "Zone of the (zonal) runners cluster, e.g. europe-west1-b; required when runners_enabled"
+  description = "Zone of the (zonal) runners cluster, e.g. europe-west9-b; required when runners_enabled"
 
   validation {
     condition     = !var.runners_enabled || startswith(var.runners_zone, "${var.region}-")
-    error_message = "runners_zone must be a zone of var.region (e.g. europe-west1-b for europe-west1)."
+    error_message = "runners_zone must be a zone of var.region (e.g. europe-west9-b for europe-west9)."
   }
 }
 

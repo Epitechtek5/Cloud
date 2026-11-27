@@ -31,7 +31,8 @@ These cannot be enforced from the workflows and must be part of the runner infra
 - **No fork PRs**: Settings, Actions, "Require approval for all outside collaborators". A fork PR runs arbitrary
   code on the runner network.
 - **No `pull_request_target`** that checks out the code of the PR.
-- **Least-privilege service account** on the runner VMs, and the runners kept in the dedicated `runners` subnet.
+- **Least-privilege service account** on the runner VMs, and the runners kept in the dedicated `runners` subnet
+  of the prd VPC (the cluster lives in prd since #55, so the reproducibility cycles on dev never take it down).
 - **Trusted jobs on their own nodes**: the jobs holding credentials use a second scale set whose pods only run on a
   tainted node pool, never next to a PR job.
 - **Budget alert**: done, a monthly `google_billing_budget` per project (credits excluded) alerting the team at

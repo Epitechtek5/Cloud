@@ -62,7 +62,7 @@ How to read it:
   ([pubsub.md](pubsub.md)). The bucket event goes through a GCS notification to a topic instead.
 - **Prd and dev**: same code, two Google Cloud projects. Prd runs in `europe-west9` (the gateway in `europe-west1`,
   the nearest region where API Gateway exists), dev in `europe-west1`. The runners cluster, Cloud NAT and ARC exist
-  in dev only.
+  in prd only (since #55: dev is destroyed and re-created for the reproducibility checks).
 
 ### Deployed or planned
 
