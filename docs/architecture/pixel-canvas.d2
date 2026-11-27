@@ -326,10 +326,10 @@ gcp: "Google Cloud project (dev and prd: same code, two projects)" {
     nat: "Cloud Router + Cloud NAT\nrunners subnet, outbound only\n(dev)" {
       icon: ./icons/Networking-512-color-rgb.svg
     }
-    gke: "GKE private cluster: runners (dev only)\nspot node pool with autoscaling\nnodes run as SA runners-nodes, Workload Identity on" {
+    gke: "GKE private cluster: runners (dev only)\nspot node pools with autoscaling: runners (PR jobs)\nand runners-trusted (tainted, from 0 node)\nnodes run as SA runners-nodes, Workload Identity on" {
       icon: ./icons/GKE-512-color.svg
     }
-    arc: "Actions Runner Controller (Helm)\nnamespaces arc-systems and arc-runners\nNetworkPolicy: no ingress, internet-only egress" {
+    arc: "Actions Runner Controller (Helm)\nnamespaces arc-systems and arc-runners\nscale sets: PR (CI_RUNNER) and trusted (CI_RUNNER_TRUSTED)\nNetworkPolicy: no ingress, internet-only egress" {
       icon: ./icons/GKE-512-color.svg
     }
     wif: "Workload Identity Federation\npool github, OIDC provider, attribute condition\n(repository, owner, GitHub Environment)\n-> SA gha-deploy (apply) and gha-plan (read only)" {
