@@ -6,15 +6,22 @@ import { COLLECTIONS } from "../lib/grid.js";
 
 /**
  * Visible pixels (painted after the last /admin clear), streamed with only the
- * fields the image needs. Stops at maxPixels so that a huge canvas cannot run
- * the instance out of memory; the snapshot is then marked truncated.
+ * fields the image needs. Two bounds, either one marks the snapshot truncated:
+ * - maxReads caps the documents read, erased ones included, so a snapshot of a
+ *   huge canvas ends within the function's timeout instead of being retried
+ *   5 times into the DLQ. Erased pixels cannot be skipped by a query: the
+ *   single-field index on `t` is disabled (hotspot, docs/data-model.md);
+ * - maxPixels caps the visible pixels kept, so the instance cannot run out of
+ *   memory.
  */
-export async function readVisiblePixels(db, { maxPixels }) {
+export async function readVisiblePixels(db, { maxPixels, maxReads }) {
   const { clearedAt } = await readSession(db);
   const pixels = [];
   let truncated = false;
-  const stream = db.collection(COLLECTIONS.pixels).select("x", "y", "c", "t").stream();
+  let reads = 0;
+  const stream = db.collection(COLLECTIONS.pixels).select("x", "y", "c", "t").limit(maxReads).stream();
   for await (const doc of stream) {
+    reads++;
     const p = doc.data();
     const t = toMillis(p.t);
     if (t === null || t <= clearedAt) continue;
@@ -25,6 +32,7 @@ export async function readVisiblePixels(db, { maxPixels }) {
     }
     pixels.push({ x: p.x, y: p.y, c: p.c, t });
   }
+  if (reads >= maxReads) truncated = true;
   return { pixels, truncated };
 }
 

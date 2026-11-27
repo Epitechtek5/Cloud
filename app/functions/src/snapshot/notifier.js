@@ -66,7 +66,9 @@ export function createSnapshotNotifier({ signer, discord, ttlSeconds, logger }) 
       const url = await signer.sign(object.bucket, object.name, ttlSeconds);
       const interaction = { id: meta.requestId, applicationId: meta.applicationId, token: meta.interactionToken };
       await discord.editOriginal(interaction, {
-        content: `📸 Snapshot of ${meta.requestedAt ?? object.timeCreated} (${meta.pixels ?? "?"} pixels): ${url}\nThe link expires in ${minutes(ttlSeconds)}.`,
+        content:
+          `📸 Snapshot of ${meta.requestedAt ?? object.timeCreated} (${meta.pixels ?? "?"} pixels): ${url}\nThe link expires in ${minutes(ttlSeconds)}.` +
+          (meta.truncated === "true" ? "\n⚠️ The canvas is too large to capture in full: part of the drawings is missing." : ""),
       });
       log.info("snapshot link posted", { object: object.name, ttlSeconds });
       return res.status(204).end();

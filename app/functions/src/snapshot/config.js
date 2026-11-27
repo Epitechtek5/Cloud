@@ -14,6 +14,10 @@ export function loadSnapshotWorkerConfig(env = process.env) {
     bucket: env.SNAPSHOTS_BUCKET,
     // ~40 bytes per pixel in memory: 2 million fit in the 512 MiB instance.
     maxPixels: intIn(env, "MAX_SNAPSHOT_PIXELS", 1, 10_000_000, 2_000_000),
+    // Documents read, erased ones included: a streamed read runs at roughly
+    // 10 to 20k documents per second, so 2 million stay well within the 290 s
+    // timeout.
+    maxReads: intIn(env, "MAX_SNAPSHOT_READS", 1, 10_000_000, 2_000_000),
   };
 }
 

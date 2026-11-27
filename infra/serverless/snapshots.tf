@@ -57,6 +57,7 @@ module "snapshot_worker" {
   environment_variables = {
     SNAPSHOTS_BUCKET    = google_storage_bucket.snapshots.name
     MAX_SNAPSHOT_PIXELS = "2000000"
+    MAX_SNAPSHOT_READS  = "2000000"
   }
 
   ingress  = "ALLOW_INTERNAL_ONLY"
@@ -67,9 +68,7 @@ module "snapshot_worker" {
   max_instances   = 2
 
   depends_on = [
-    google_project_iam_member.functions_build_logs,
-    google_project_iam_member.functions_build_sources,
-    google_artifact_registry_repository_iam_member.functions_build,
+    time_sleep.functions_build_iam,
   ]
 }
 
@@ -137,9 +136,7 @@ module "snapshot_notifier" {
   max_instances   = 2
 
   depends_on = [
-    google_project_iam_member.functions_build_logs,
-    google_project_iam_member.functions_build_sources,
-    google_artifact_registry_repository_iam_member.functions_build,
+    time_sleep.functions_build_iam,
   ]
 }
 

@@ -73,6 +73,14 @@ test("signs the new snapshot and edits the /snapshot answer with the link", asyn
   assert.ok(!JSON.stringify(logs).includes("X-Goog-Signature"));
 });
 
+test("says when the snapshot is truncated, and only then", async () => {
+  const { send, discord } = setup();
+  await send(notification());
+  await send(notification({ ...object, metadata: { ...object.metadata, truncated: "true" } }));
+  assert.doesNotMatch(discord.edits[0].message.content, /part of the drawings is missing/);
+  assert.match(discord.edits[1].message.content, /part of the drawings is missing/);
+});
+
 test("ignores other events, other objects and snapshots without interaction", async () => {
   const { send, discord } = setup();
   assert.equal(await send(notification(object, "OBJECT_DELETE")), 204);
