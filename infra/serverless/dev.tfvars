@@ -9,7 +9,7 @@ env        = "dev"
 # local front.
 discord_client_id = "1562814087900037260"
 auth_discord_redirect_uris = [
-  "https://8-232-137-188.sslip.io/",
+  "https://136-68-161-49.sslip.io/",
   "http://localhost:5173/",
 ]
 
