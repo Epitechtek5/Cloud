@@ -57,6 +57,8 @@ module "command_worker" {
     ADMIN_ROLE_IDS = jsonencode(var.discord_admin_role_ids)
     ADMIN_USER_IDS = jsonencode(var.discord_admin_user_ids)
     APP_URL        = "https://${local.frontend_domain}/"
+    # /get reads the tile rasters instead of every pixel document (#68, tiles.tf).
+    TILES_BUCKET = google_storage_bucket.tiles.name
   }
 
   # Pub/Sub push is internal traffic: no gateway, no public URL.
@@ -80,6 +82,13 @@ resource "google_project_iam_member" "command_worker_firestore" {
   project = var.project_id
   role    = "roles/datastore.user"
   member  = "serviceAccount:${module.command_worker.service_account_email}"
+}
+
+# /get reads the rasters of the tiles bucket (read only: it never renders them).
+resource "google_storage_bucket_iam_member" "command_worker_tiles" {
+  bucket = google_storage_bucket.tiles.name
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${module.command_worker.service_account_email}"
 }
 
 output "command_worker_uri" {

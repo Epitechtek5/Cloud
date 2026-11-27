@@ -41,6 +41,12 @@ module "pubsub" {
       endpoint        = module.command_worker.uri
       service_account = google_service_account.command_push.email
     }
+    # Tile rasters (#68): the only consumer of pixel.processed (the browser gets
+    # its deltas from Firestore, not from this topic).
+    "pixel.processed" = {
+      endpoint        = module.tile_renderer.uri
+      service_account = google_service_account.tile_renderer_push.email
+    }
   }
 
   # The Pub/Sub service agent (DLQ IAM) only exists once the API is enabled.
