@@ -16,7 +16,7 @@ run "creates_topics_subscriptions_and_dlqs_for_every_channel" {
   command = plan
 
   assert {
-    condition     = toset(keys(google_pubsub_topic.main)) == toset(["discord.command", "pixel.draw", "pixel.processed", "snapshot.requested"])
+    condition     = toset(keys(google_pubsub_topic.main)) == toset(["discord.command", "pixel.draw", "pixel.processed", "snapshot.requested", "snapshot.ready"])
     error_message = "Unexpected set of topics."
   }
 
