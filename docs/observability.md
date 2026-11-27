@@ -45,3 +45,75 @@ renaming one of these messages breaks its metric.
   present, the DLQ widget watches every dead-letter subscription, the metrics the issue asks for are queried, p99 is
   shown, tiles do not overlap.
 - The rendered dashboard JSON was checked against the Monitoring API with `validateOnly=true` (nothing created).
+
+## End-to-end tracing (#74)
+
+Each function starts the OpenTelemetry SDK on Cloud Run (`app/functions/src/lib/otel.js`) and exports its spans to
+**Cloud Trace**. The function service accounts already have `roles/cloudtrace.agent` (module `function`). Spans are
+created with the OpenTelemetry API only (`src/lib/trace.js`): without the SDK (tests, local runs) they are no-ops.
+
+One user action is **one trace**:
+
+```
+POST /pixels (draw-proxy, SERVER, child of the gateway's traceparent / X-Cloud-Trace-Context)
+└─ pixel.draw publish (PRODUCER)          traceparent copied into the Pub/Sub message attributes
+   └─ pixel.draw process (draw-worker, CONSUMER)
+      ├─ firestore transaction draw (CLIENT)
+      └─ pixel.processed publish (PRODUCER)
+
+POST /discord/interactions (discord-proxy) → discord.command publish → discord.command process (command-worker)
+   → [/draw] pixel.draw publish → pixel.draw process → discord PATCH webhook (CLIENT)
+   → [/snapshot] snapshot.requested publish → snapshot.requested process (snapshot-worker)
+        → firestore stream pixels, gcs upload snapshot
+        → snapshot.ready process (snapshot-notifier, parent carried in the object metadata)
+             → iam signBlob (V4 signed URL), discord PATCH webhook
+```
+
+- **Propagation**: W3C `traceparent` / `tracestate` (and Google's `X-Cloud-Trace-Context` on input). The publisher
+  injects them into the message attributes, `createPushHandler` extracts them. The snapshot notifier is triggered by
+  the bucket, so the worker writes them into the object's custom metadata.
+- **Sampling**: every new trace is kept, and so is every child of a sampled parent. A child of an *unsampled* parent
+  (Cloud Run samples few incoming requests) is kept with `TRACE_SAMPLE_RATIO`, 1 by default, so that any `/draw` or
+  brush stroke can be followed during the demo. Lower it on prd if the Trace quota matters. `OTEL_SDK_DISABLED=true`
+  turns tracing off.
+- **Export**: batched, and flushed **before the response leaves**: a worker flushes before it acks its message, and the
+  HTTP entry points (`tracedHttp`) hold `res.end` until their SERVER span is exported. With request-only CPU (the Cloud
+  Run default) an instance gets no CPU once it has answered, so a flush after the response would stay frozen until the
+  next request. Also flushed on `SIGTERM`. A failing exporter never fails a request.
+- **No secrets in spans**: the Discord interaction token is in the webhook URL, which is never recorded (method and
+  status only).
+
+### Logs ↔ traces
+
+Every log line of a request carries `trace_id`, `span_id`, `trace_sampled` and `logging.googleapis.com/trace`, taken
+from the active span. In Logs Explorer, *Show entries for this trace* lists the lines of every function involved, and
+Cloud Trace shows the lines under each span.
+
+### Logs Explorer queries
+
+Saved queries need `logging.queries.share`, which only `roles/logging.admin` holds; the deployer does not get that
+role. These queries are therefore kept here: paste them, then *Save* them as shared queries from the console.
+
+| Purpose | Query |
+| --- | --- |
+| Everything about one request (`X-Correlation-Id` of the response, or `correlation_id` of a span) | `jsonPayload.correlation_id="<id>"` |
+| One trace, every function | `trace="projects/<project_id>/traces/<trace_id>"` |
+| Errors of the application | `resource.type="cloud_run_revision" severity>=ERROR jsonPayload.function:*` |
+| Messages failing (retried, then dead-lettered) | `jsonPayload.message="processing failed, the message will be retried"` |
+| Rate-limited users | `jsonPayload.message="batch applied" jsonPayload.reason="rate_limited"` |
+| Refused admin commands | `jsonPayload.message="admin command refused"` |
+| One user's activity | `jsonPayload.user_id="<discord id>"` |
+
+### Demo
+
+1. Draw a pixel with `/draw` (or the brush) and copy the `X-Correlation-Id` from the response or a log line.
+2. Logs Explorer → `jsonPayload.correlation_id="<id>"` → open a line → *View trace details*.
+3. The waterfall shows the proxy, the publish, the queue wait (gap between publish and process), the worker, its
+   Firestore transaction and the Discord answer, all in one trace.
+
+### Checks
+
+`test/lib/trace.test.js` runs an in-memory SDK: a brush stroke and a `/draw` each produce a single trace with the
+expected parent → child chain, logs carry the trace, a failing worker records the exception on its span, and the
+Discord token never reaches a span attribute. `test/lib/otel.test.js` covers the SDK start (service name, sampling of
+unsampled parents, flush).

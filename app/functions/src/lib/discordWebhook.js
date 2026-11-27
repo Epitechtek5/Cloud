@@ -5,6 +5,8 @@
 // follow-up (https://discord.com/developers/docs/interactions/receiving-and-responding).
 // The token is part of the URL: never log the URL.
 
+import { SpanKind, withSpan } from "./trace.js";
+
 export const DISCORD_API = "https://discord.com/api/v10";
 
 // Never ping anyone from a bot answer (a user name could contain @everyone).
@@ -42,6 +44,13 @@ function body({ content, files = [], flags }) {
  */
 export function createInteractionClient({ fetch: fetchFn = globalThis.fetch, baseUrl = DISCORD_API, timeoutMs = 10_000 } = {}) {
   async function call(method, path, message) {
+    // The path holds the interaction token: never in a span attribute.
+    return withSpan(`discord ${method} webhook`, { kind: SpanKind.CLIENT, attributes: { "http.request.method": method, "server.address": "discord.com" } }, (span) =>
+      send(method, path, message, span),
+    );
+  }
+
+  async function send(method, path, message, span) {
     const request = body(message);
     let res;
     try {
@@ -49,6 +58,7 @@ export function createInteractionClient({ fetch: fetchFn = globalThis.fetch, bas
     } catch {
       throw new DiscordApiError(0, "unreachable");
     }
+    span.setAttribute("http.response.status_code", res.status);
     if (!res.ok) {
       const detail = await res.json().catch(() => null);
       throw new DiscordApiError(res.status, detail?.code === undefined ? undefined : String(detail.code));

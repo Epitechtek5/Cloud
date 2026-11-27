@@ -5,6 +5,7 @@
 import { readRegion, readSession } from "../lib/canvas.js";
 import { firestoreTypes } from "../lib/firestore.js";
 import { COLLECTIONS, SESSION_STATE } from "../lib/grid.js";
+import { firestoreSpan } from "../lib/trace.js";
 
 // Longer than the Pub/Sub retention (7 days): a redelivery always finds it.
 export const MARKER_TTL_MS = 8 * 24 * 3600 * 1000;
@@ -20,7 +21,7 @@ export function createCommandStore(db, { now = Date.now } = {}) {
   /** Runs `apply(tx, types)` once per interaction; returns the stored reply on a redelivery. */
   async function once(interactionId, info, apply) {
     const { FieldValue, Timestamp } = await firestoreTypes();
-    return db.runTransaction(async (tx) => {
+    return firestoreSpan("transaction command", () => db.runTransaction(async (tx) => {
       const done = await tx.get(marker(interactionId));
       if (done.exists) return { duplicate: true, reply: done.data().reply ?? null };
       const reply = await apply(tx, { FieldValue, Timestamp });
@@ -31,13 +32,13 @@ export function createCommandStore(db, { now = Date.now } = {}) {
         expireAt: Timestamp.fromMillis(now() + MARKER_TTL_MS),
       });
       return { duplicate: false, reply };
-    });
+    }));
   }
 
   return {
     /** Stored reply of an already processed interaction, or null. */
     async processed(interactionId) {
-      const snap = await marker(interactionId).get();
+      const snap = await firestoreSpan("get processedCommands", () => marker(interactionId).get());
       return snap.exists ? { reply: snap.data().reply ?? null } : null;
     },
 
@@ -87,7 +88,7 @@ export function createCommandStore(db, { now = Date.now } = {}) {
       });
     },
 
-    readSession: () => readSession(db),
-    readRegion: (region) => readRegion(db, region),
+    readSession: () => firestoreSpan("get session", () => readSession(db)),
+    readRegion: (region) => firestoreSpan("query region", () => readRegion(db, region)),
   };
 }
