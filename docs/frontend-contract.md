@@ -61,6 +61,10 @@ Pour ne pas relire des milliers de documents, chaque tuile a un **raster** rég�
   (`Access-Control-Expose-Headers`) si l'origine diffère de celle de l'app.
 - `Cache-Control: public, max-age=60` : la fraîcheur vient des deltas (section 3), pas du cache.
 - Le bucket qui contient les rasters reste **privé** (exigence du sujet) ; voir la question ouverte A.
+- Côté front (`src/backend/gcp/tiles.ts`) : l'URL de base vient de `tilesBase` dans `/config.json` (optionnel, `/tiles` par défaut,
+  donc même origine). Un `404` vaut « tuile vide » (version 0, tous les pixels viennent alors de Firestore) ; une réponse 200 qui n'est
+  pas un PNG (page de repli du CDN) ou sans `X-Tile-Version` valide est une **erreur** : la tuile est retentée au prochain
+  mouvement de la vue. Aucun `Authorization` n'est envoyé (réponse publique mise en cache par le CDN) : à confirmer dans #68.
 
 ## 3. Temps réel : Firestore en lecture seule (`RealtimeChannel`)
 
@@ -92,7 +96,7 @@ polling, aucun pixel perdu entre le raster et l'abonnement**. L'effacement (`/ad
 > Conséquence : le front s'abonne **après** avoir chargé le raster. C'est fait dans le front et le mock :
 > `TileSource.loadTile` renvoie `{ rgba, version }` (`version` = `X-Tile-Version`, `0` pour une tuile vide) et
 > `RealtimeChannel.subscribeTile(tx, ty, cb, { since: version })` ne livre que les pixels `t > since`, puis les changements en direct.
-> L'adaptateur GCP devra respecter cette sémantique (`where("t", ">", since)`).
+> L'adaptateur GCP (`src/backend/gcp/`) respecte cette sémantique (`where("t", ">", Timestamp.fromMillis(since))`).
 
 ### État global : `session/state`
 

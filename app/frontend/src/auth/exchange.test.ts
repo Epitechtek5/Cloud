@@ -16,6 +16,12 @@ describe('exchangeCode', () => {
     expect(r.discordAccessToken).toBe('dat');
   });
 
+  it('keeps the Firebase custom token when the login service returns one', async () => {
+    const r = await exchangeCode(reply({ ...ok, firebaseToken: 'fb' }), 'https://gw', { code: 'c', codeVerifier: 'v' }, 0);
+    expect(r.session.firebaseToken).toBe('fb');
+    await expect(exchangeCode(reply({ ...ok, firebaseToken: 1 }), 'https://gw', { code: 'c', codeVerifier: 'v' })).rejects.toThrow(/Unexpected response/);
+  });
+
   it('fails on HTTP errors, network errors and malformed bodies', async () => {
     await expect(exchangeCode(reply({}, 401), 'https://gw', { code: 'c', codeVerifier: 'v' })).rejects.toThrow(/HTTP 401/);
     await expect(exchangeCode(vi.fn(async () => Promise.reject(new Error('x'))), 'https://gw', { code: 'c', codeVerifier: 'v' })).rejects.toThrow(/Could not reach/);

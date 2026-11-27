@@ -12,7 +12,12 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe('parseRuntimeConfig', () => {
   it('accepts a complete config', () => {
-    expect(parseRuntimeConfig(valid)).toEqual(valid);
+    expect(parseRuntimeConfig(valid)).toEqual({ ...valid, tilesBase: '/tiles' });
+  });
+
+  it('lets the config move the tiles (same-origin path by default, normalized like apiBase)', () => {
+    expect(parseRuntimeConfig({ ...valid, tilesBase: 'https://cdn.example/t/' }).tilesBase).toBe('https://cdn.example/t');
+    expect(() => parseRuntimeConfig({ ...valid, tilesBase: 3 })).toThrow(/Invalid \/config.json/);
   });
 
   it.each([
@@ -48,7 +53,7 @@ describe('loadRuntimeConfig', () => {
   it('loads and validates the file', async () => {
     const f = vi.fn(async () => new Response(JSON.stringify(valid)));
     vi.stubGlobal('fetch', f);
-    expect(await loadRuntimeConfig('/config.json')).toEqual(valid);
+    expect(await loadRuntimeConfig('/config.json')).toEqual({ ...valid, tilesBase: '/tiles' });
     expect(f).toHaveBeenCalledWith('/config.json', { cache: 'no-store' });
   });
   it('explains a missing file answered with an HTML fallback page', async () => {
