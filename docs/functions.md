@@ -91,7 +91,7 @@ batch (`store.js`):
    (the first pixels, duplicates within a batch counted once, last colour wins);
 3. writes each accepted pixel whole, `{x, y, tile, c, a, an, t: serverTimestamp}` (last write wins by server
    time, never a mix of two draws), the quota `{limit, used, windowStart}`, the rejected pixels in
-   `userEvents/{batchId}` (`reason`, `pixels`, TTL 1 h) and the marker (TTL 8 days).
+   `userEvents/{uid}_{batchId}` (`reason`, `pixels`, TTL 1 h) and the marker (TTL 8 days).
 
 Then it publishes `pixel.processed` (accepted pixels, rejected with their reason) and edits the `/draw` answer.
 A batch that fails validation but names its author (`batchId`, `user.id`) is recorded as `invalid` in
@@ -133,7 +133,9 @@ bucket OBJECT_FINALIZE -> snapshot.ready (storage notification) -> snapshot-noti
 - **What the image shows** (`compose.js`): the 100 000² grid would be 40 GB of RGBA, so the snapshot is the square
   around the painted area (8 px margin): 1:1 up to 2048 px, otherwise downscaled (most recent pixel of each block),
   enlarged to at least 512 px. Pixels older than the last `/admin clear` are left out. At most
-  `MAX_SNAPSHOT_PIXELS` (2 million) are read; past that the snapshot is flagged `truncated`.
+  `MAX_SNAPSHOT_PIXELS` (2 million) are kept and at most `MAX_SNAPSHOT_READS` (2 million) documents are read, erased
+  ones included, so a snapshot ends within the timeout; past either bound the snapshot is flagged `truncated` and the
+  Discord message says part of the drawings is missing.
 - **Timestamped, once**: the name comes from `requestedAt` (the interaction's snowflake time), so a redelivery
   writes the same name; the upload is create-only (`ifGenerationMatch: 0`), a `412` means "already done" and the
   notifier is triggered once. The object metadata carries what the notifier needs (request id, author,

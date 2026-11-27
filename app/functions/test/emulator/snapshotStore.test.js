@@ -17,11 +17,22 @@ test("reads every visible pixel, skips the cleared ones, stops at maxPixels", em
   await Promise.all([write(1, 1000), write(2, 3000), write(3, 4000), write(4, 5000)]);
   await db.doc("session/state").set({ clearedAt: Timestamp.fromMillis(2000) });
 
-  const all = await readVisiblePixels(db, { maxPixels: 10 });
+  const all = await readVisiblePixels(db, { maxPixels: 10, maxReads: 10 });
   assert.equal(all.truncated, false);
   assert.deepEqual(all.pixels.map((p) => [p.x, p.c, p.t]).sort(), [[2, 2, 3000], [3, 3, 4000], [4, 4, 5000]]);
 
-  const capped = await readVisiblePixels(db, { maxPixels: 2 });
+  const capped = await readVisiblePixels(db, { maxPixels: 2, maxReads: 10 });
   assert.equal(capped.truncated, true);
   assert.equal(capped.pixels.length, 2);
+});
+
+test("stops after maxReads documents, erased ones included", emulatorOnly, async () => {
+  const db = emulatorDb(DB);
+  const write = (x, t) => db.doc(`pixels/${x}_0`).set({ x, y: 0, tile: "0_0", c: x, a: "1", an: "a", t: Timestamp.fromMillis(t) });
+  await Promise.all([write(1, 1000), write(2, 1000), write(3, 4000), write(4, 5000)]);
+  await db.doc("session/state").set({ clearedAt: Timestamp.fromMillis(2000) });
+  // Documents stream in id order: 1_0 and 2_0 (erased) use up the reads.
+  const bounded = await readVisiblePixels(db, { maxPixels: 10, maxReads: 2 });
+  assert.equal(bounded.truncated, true);
+  assert.deepEqual(bounded.pixels, []);
 });

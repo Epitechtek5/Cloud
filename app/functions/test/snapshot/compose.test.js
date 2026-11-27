@@ -55,7 +55,7 @@ test("object names are timestamped and stable for one request", () => {
 
 test("configuration", () => {
   assert.throws(() => loadSnapshotWorkerConfig({}), /SNAPSHOTS_BUCKET/);
-  assert.deepEqual(loadSnapshotWorkerConfig({ SNAPSHOTS_BUCKET: "b" }), { bucket: "b", maxPixels: 2_000_000 });
+  assert.deepEqual(loadSnapshotWorkerConfig({ SNAPSHOTS_BUCKET: "b" }), { bucket: "b", maxPixels: 2_000_000, maxReads: 2_000_000 });
   assert.equal(loadSnapshotWorkerConfig({ SNAPSHOTS_BUCKET: "b", MAX_SNAPSHOT_PIXELS: "10" }).maxPixels, 10);
   assert.deepEqual(loadNotifierConfig({}), { ttlSeconds: 3600 });
   assert.equal(loadNotifierConfig({ SIGNED_URL_TTL_SECONDS: "900" }).ttlSeconds, 900);
