@@ -15,6 +15,11 @@ output "plan_service_account" {
   description = "gha-plan: read-only PR plan"
 }
 
+output "frontend_ip" {
+  value       = google_compute_global_address.frontend.address
+  description = "Reserved IP of the frontend load balancer, kept across a destroy of the workload (persistent.tf)"
+}
+
 output "state_bucket" {
   value       = var.state_bucket
   description = "Terraform state bucket of the environment"
