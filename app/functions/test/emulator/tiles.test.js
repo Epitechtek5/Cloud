@@ -61,7 +61,9 @@ test("render a tile from Firestore, repaint, clear: the raster follows", async (
 
 test("the coalescing transactions elect one leader among concurrent messages", async () => {
   const db = emulatorDb(DB);
-  const state = createTileState(db, { leaseMs: 5000 });
+  // A long lease: 8 contending transactions can be retried for seconds on a busy emulator, and
+  // a lease that expires meanwhile rightly elects a second leader (seen in CI with 5 s).
+  const state = createTileState(db, { leaseMs: 60_000 });
   const claims = await Promise.all(Array.from({ length: 8 }, (_, i) => state.touch("0_0", `owner-${i}`)));
   const leaders = claims.filter((c) => c.leader);
   assert.equal(leaders.length, 1);
