@@ -89,7 +89,7 @@ batch (`store.js`):
    (the first pixels, duplicates within a batch counted once, last colour wins);
 3. writes each accepted pixel whole, `{x, y, tile, c, a, an, t: serverTimestamp}` (last write wins by server
    time, never a mix of two draws), the quota `{limit, used, windowStart}`, the rejected pixels in
-   `userEvents/{batchId}` (`reason`, `pixels`, TTL 1 h) and the marker (TTL 8 days).
+   `userEvents/{uid}_{batchId}` (`reason`, `pixels`, TTL 1 h) and the marker (TTL 8 days).
 
 Then it publishes `pixel.processed` (accepted pixels, rejected with their reason) and edits the `/draw` answer.
 A batch that fails validation but names its author (`batchId`, `user.id`) is recorded as `invalid` in
