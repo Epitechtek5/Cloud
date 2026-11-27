@@ -39,7 +39,7 @@ is listed as a known trade-off in [`infra-security.md`](infra-security.md).
 | Component | Version | Source | Used for | Why |
 | --- | --- | --- | --- | --- |
 | `gha-runner-scale-set-controller` | 0.15.1 (`runners_arc_version`) | `oci://ghcr.io/actions/actions-runner-controller-charts` | ARC controller and listener (`arc-systems`) | official GitHub Actions Runner Controller, the self-hosted runner solution documented by GitHub |
-| `gha-runner-scale-set` | 0.15.1 | same OCI registry | the scale set `huiledecloud-dev-runners`, 0 to 4 ephemeral runners (`arc-runners`) | same project, same version as the controller (required) |
+| `gha-runner-scale-set` | 0.15.1 | same OCI registry | the scale sets `huiledecloud-prd-runners` (0 to 4) and `huiledecloud-prd-runners-trusted` (0 to 2) of ephemeral runners (`arc-runners`) | same project, same version as the controller (required) |
 | `ghcr.io/actions/actions-runner` | 2.338.2 | GitHub Container Registry | the runner container of each job pod | official runner image, exact tag bumped on purpose (ARC refuses runner self-updates) |
 | `docker:dind` sidecar | set by the chart | Docker Hub (official image) | Docker in the job pod (`containerMode: dind`) | official Docker image; the privilege it needs is listed in [`infra-security.md`](infra-security.md) |
 

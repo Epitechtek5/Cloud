@@ -167,6 +167,56 @@ resource "google_container_node_pool" "runners" {
   }
 }
 
+# Nodes reserved for the trusted scale set (runners.tf): the jobs that hold
+# credentials (deploy build, release, architecture, wif-isolation) never share a
+# node with a PR job, so a container escape from the privileged dind of a PR
+# cannot read their tokens. The taint keeps every other pod away (PR runners,
+# ARC controller and listeners, External Secrets); only the trusted runner pods
+# tolerate it. 0 node when idle: the autoscaler adds one when a trusted job is
+# queued (about a minute), and removes it once it is empty.
+resource "google_container_node_pool" "runners_trusted" {
+  count = var.runners_enabled ? 1 : 0
+
+  depends_on = [google_project_iam_member.runners_nodes]
+
+  name     = "runners-trusted"
+  cluster  = google_container_cluster.runners[0].id
+  location = var.runners_zone
+
+  autoscaling {
+    min_node_count = 0
+    max_node_count = var.runners_trusted_max_nodes
+  }
+
+  management {
+    auto_repair  = true
+    auto_upgrade = true
+  }
+
+  node_config {
+    machine_type    = var.runners_machine_type
+    spot            = var.runners_spot
+    service_account = google_service_account.runners_nodes[0].email
+    oauth_scopes    = ["https://www.googleapis.com/auth/cloud-platform"]
+    labels          = { purpose = "ci-runners-trusted" }
+
+    taint {
+      key    = "ci-runners"
+      value  = "trusted"
+      effect = "NO_SCHEDULE"
+    }
+
+    workload_metadata_config {
+      mode = "GKE_METADATA"
+    }
+
+    shielded_instance_config {
+      enable_secure_boot          = true
+      enable_integrity_monitoring = true
+    }
+  }
+}
+
 # Private nodes have no public IP: Cloud NAT gives them outbound access to
 # github.com (runner registration, job logs) for the runners subnet only.
 resource "google_compute_router" "runners" {

@@ -3,8 +3,6 @@ region     = "europe-west1"
 vpc_name   = "huiledecloud-dev-vpc"
 cidr_block = "10.0.0.0/16"
 
-# GKE cluster of the self-hosted CI runners
-runners_enabled      = true
-runners_zone         = "europe-west1-b"
-runners_cluster_name = "huiledecloud-dev-runners"
-runners_master_cidr  = "172.16.0.0/28"
+# No runners cluster here: it lives in prd (runners_enabled = true in
+# prd.tfvars), so destroying and re-creating dev never takes the CI down.
+runners_enabled = false

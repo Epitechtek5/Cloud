@@ -1,8 +1,9 @@
 # Runner guardrails
 
-The CI/CD targets **self-hosted runners**, selected through the `CI_RUNNER` repository variable
-(`runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}`). The cost is the GCP VMs and the risk is the code they run,
-not GitHub-hosted minutes.
+Every job runs on our **self-hosted runners** by default, selected through two repository variables:
+`runs-on: ${{ vars.CI_RUNNER }}` for the PR jobs and `vars.CI_RUNNER_TRUSTED` for the jobs that hold credentials
+(issue #55, see [self-hosted-runners.md](self-hosted-runners.md#switching-runners)). The cost is the GCP VMs and the
+risk is the code they run, not GitHub-hosted minutes.
 
 ## In place (workflows)
 
@@ -30,12 +31,16 @@ These cannot be enforced from the workflows and must be part of the runner infra
 - **No fork PRs**: Settings, Actions, "Require approval for all outside collaborators". A fork PR runs arbitrary
   code on the runner network.
 - **No `pull_request_target`** that checks out the code of the PR.
-- **Least-privilege service account** on the runner VMs, and the runners kept in the dedicated `runners` subnet.
+- **Least-privilege service account** on the runner VMs, and the runners kept in the dedicated `runners` subnet
+  of the prd VPC (the cluster lives in prd since #55, so the reproducibility cycles on dev never take it down).
+- **Trusted jobs on their own nodes**: the jobs holding credentials use a second scale set whose pods only run on a
+  tainted node pool, never next to a PR job.
 - **Budget alert**: done, a monthly `google_billing_budget` per project (credits excluded) alerting the team at
   50, 90 and 100 % of actual spend and 100 % of forecasted spend. See [infra/billing](../../infra/billing/README.md).
 
-## Fallback to GitHub-hosted runners
+## No silent fallback to GitHub-hosted runners
 
-While `CI_RUNNER` is unset, jobs silently fall back to `ubuntu-latest`. Once the self-hosted runners are live,
-set `CI_RUNNER` and remove the `|| 'ubuntu-latest'` fallback from every workflow so that a missing runner fails
-instead of running on GitHub-hosted machines.
+The `|| 'ubuntu-latest'` fallback is gone (#55): if `CI_RUNNER` or `CI_RUNNER_TRUSTED` is unset, `runs-on` is empty
+and the run fails at once instead of quietly running on GitHub-hosted machines. Going back to GitHub-hosted runners
+is an explicit choice: set the variables to `ubuntu-latest` (`scripts/switch-runners.sh github-hosted`), or pick
+`runner = github-hosted` when running a manual workflow.

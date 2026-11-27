@@ -5,6 +5,12 @@ name: wif-isolation
 # refused both prd accounts. Read-only: the only GCP call is a token exchange.
 on:
   workflow_dispatch:
+    inputs:
+      runner:
+        description: "Runners: self-hosted (CI_RUNNER_TRUSTED) or github-hosted (ubuntu-latest, e.g. while the runners cluster is down)"
+        type: choice
+        options: [self-hosted, github-hosted]
+        default: self-hosted
 
 permissions:
   contents: read
@@ -14,7 +20,8 @@ env:
 
 jobs:
   dev-job:
-    runs-on: ubuntu-latest
+    # Gets a dev deploy token: trusted pool, never the PR one.
+    runs-on: ${{ inputs.runner == 'github-hosted' && 'ubuntu-latest' || vars.CI_RUNNER_TRUSTED }}
     timeout-minutes: 5
     environment: dev
     permissions:

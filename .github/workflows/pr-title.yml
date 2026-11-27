@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   conventional-title:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RUNNER }}
     timeout-minutes: 5
     steps:
       - name: Check the PR title

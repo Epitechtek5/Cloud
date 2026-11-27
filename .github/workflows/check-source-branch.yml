@@ -10,7 +10,7 @@ concurrency:
 
 jobs:
   only-dev:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RUNNER }}
     timeout-minutes: 5
     steps:
       - name: Ensure PR comes from dev
