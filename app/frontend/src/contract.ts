@@ -37,6 +37,11 @@ export interface DrawPixel {
 
 export interface SessionState {
   paused: boolean;
+  /**
+   * Epoch ms of the last `/admin clear`, 0 if the grid was never cleared. Pixels painted up to that time
+   * are erased, and so is any raster whose `version` is not newer.
+   */
+  clearedAt: number;
 }
 
 export type UserEvent =

@@ -100,7 +100,13 @@ polling, aucun pixel perdu entre le raster et l'abonnement**. L'effacement (`/ad
 
 ### État global : `session/state`
 
-`{ paused: boolean, updatedAt }`, écrit par le worker `/admin pause|resume`. Le front désactive les outils quand `paused`.
+`{ paused: boolean, clearedAt, epoch, updatedAt }`, écrit par le worker de commandes (`/admin pause|resume|clear`). Le front désactive les outils quand `paused`.
+
+`/admin clear` n'efface aucun document : il avance `clearedAt` (horodatage serveur), et un pixel n'est visible que si `t > clearedAt`. Le front
+(`TileManager`) lit `clearedAt` (en ms, plancher) et :
+- s'abonne à chaque tuile depuis `since = max(version, clearedAt)`, sinon il rejouerait les pixels effacés, toujours stockés ;
+- ignore un raster dont `version <= clearedAt` (une copie en cache CDN peut survivre au clear pendant son `max-age`) ;
+- recharge toutes les tuiles ouvertes quand un `clearedAt` plus récent arrive (clients déjà ouverts au moment du clear).
 
 ### Par utilisateur : `users/{uid}` et `userEvents/{id}`
 

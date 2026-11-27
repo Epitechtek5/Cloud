@@ -14,10 +14,14 @@ describe('pixelFromDoc', () => {
 });
 
 describe('sessionFromDoc', () => {
-  it('is not paused while the document does not exist', () => {
-    expect(sessionFromDoc(undefined)).toEqual({ paused: false });
-    expect(sessionFromDoc({ paused: true })).toEqual({ paused: true });
-    expect(sessionFromDoc({ paused: 'yes' })).toEqual({ paused: false });
+  it('is not paused nor cleared while the document does not exist', () => {
+    expect(sessionFromDoc(undefined)).toEqual({ paused: false, clearedAt: 0 });
+    expect(sessionFromDoc({ paused: true })).toEqual({ paused: true, clearedAt: 0 });
+    expect(sessionFromDoc({ paused: 'yes' })).toEqual({ paused: false, clearedAt: 0 });
+  });
+  it('reads the time of the last /admin clear in ms', () => {
+    expect(sessionFromDoc({ paused: false, clearedAt: ts(5000), epoch: 2 })).toEqual({ paused: false, clearedAt: 5000 });
+    expect(sessionFromDoc({ clearedAt: 5000 })).toEqual({ paused: false, clearedAt: 0 }); // not a Timestamp
   });
 });
 

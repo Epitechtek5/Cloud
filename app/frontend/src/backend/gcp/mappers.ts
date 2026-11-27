@@ -20,9 +20,13 @@ export function pixelFromDoc(d: Doc): PixelDelta | null {
   return { x: d.x, y: d.y, color: d.c, author: d.a, ts: d.t.toMillis() };
 }
 
-/** `session/state` = `{ paused, updatedAt }`; the document does not exist until the first /admin pause. */
+/**
+ * `session/state` = `{ paused, clearedAt, epoch, updatedAt }`; the document does not exist until the first
+ * /admin pause or clear. `clearedAt` is a server timestamp, floored to the millisecond like `X-Tile-Version`.
+ */
 export function sessionFromDoc(d: Doc): SessionState {
-  return { paused: d?.paused === true };
+  const clearedAt = d?.clearedAt;
+  return { paused: d?.paused === true, clearedAt: isTimestamp(clearedAt) ? clearedAt.toMillis() : 0 };
 }
 
 /**

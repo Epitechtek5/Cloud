@@ -71,7 +71,7 @@ describe('subscribeSession', () => {
     const onDoc = s.session.mock.calls[0]![0] as (d: Doc) => void;
     onDoc(undefined);
     onDoc({ paused: true });
-    expect(cb.mock.calls).toEqual([[{ paused: false }], [{ paused: true }]]);
+    expect(cb.mock.calls).toEqual([[{ paused: false, clearedAt: 0 }], [{ paused: true, clearedAt: 0 }]]);
   });
 });
 
