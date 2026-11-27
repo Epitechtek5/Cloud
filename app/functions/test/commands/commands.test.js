@@ -17,17 +17,16 @@ test("admin: configured role or user id only, never the Discord permission bitfi
   assert.equal(isAdmin(command("admin", { roles: ["1", ADMIN_ROLE] }), config), true);
   assert.equal(isAdmin(command("admin", { userId: ADMIN_USER }), config), true);
   assert.equal(isAdmin(command("admin", { roles: [ADMIN_ROLE] }), { adminRoleIds: new Set(), adminUserIds: new Set() }), false);
-  assert.ok(requiresAdmin("admin") && requiresAdmin("snapshot"));
-  assert.ok(!requiresAdmin("draw") && !requiresAdmin("get"));
+  assert.ok(requiresAdmin("admin"));
+  assert.ok(!requiresAdmin("draw") && !requiresAdmin("get") && !requiresAdmin("snapshot"));
 });
 
-test("a non-admin running /admin * or /snapshot is refused and nothing changes", async () => {
+test("a non-admin running /admin * is refused and nothing changes", async () => {
   for (const [name, subcommand, options] of [
     ["admin", "pause"],
     ["admin", "resume"],
     ["admin", "clear"],
     ["admin", "ratelimit", { user: "123456789012345678", limit: 999 }],
-    ["snapshot", null],
   ]) {
     const d = deps();
     const out = await handleCommand(command(name, { subcommand, options }), d);
@@ -130,6 +129,13 @@ test("/get renders the requested square as a PNG, skipping cleared pixels", asyn
   assert.deepEqual([...png.rgba.subarray(32 * 4, 32 * 4 + 4)], [255, 255, 255, 255]);
 });
 
+test("/get says when the area was too busy to read in full", async () => {
+  const store = fakeStore({ pixels: [{ x: 100, y: 200, c: 0 }] });
+  store.state.truncated = true;
+  const out = await handleCommand(command("get", { options: { x: 108, y: 208, size: 16 } }), deps({ store }));
+  assert.match(out.reply.content, /1 painted pixel\(s\)\.\n⚠️ This area is too busy/);
+});
+
 test("/get defaults to the centre of the grid and clamps to its edges", async () => {
   const store = fakeStore();
   await handleCommand(command("get"), deps({ store }));
@@ -140,7 +146,7 @@ test("/get defaults to the centre of the grid and clamps to its edges", async ()
 
 test("/snapshot publishes snapshot.requested once, with a time stable across redeliveries", async () => {
   const d = deps();
-  const event = command("snapshot", { roles: [ADMIN_ROLE] });
+  const event = command("snapshot"); // any member, no admin role (subject 3.2)
   assert.deepEqual((await handleCommand(event, d)).reply, { content: REPLIES.snapshot });
   assert.deepEqual((await handleCommand(event, d)).reply, { content: REPLIES.snapshot });
   assert.equal(d.published.length, 1);

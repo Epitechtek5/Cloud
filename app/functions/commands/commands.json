@@ -31,9 +31,8 @@
   {
     "name": "snapshot",
     "type": 1,
-    "description": "Generate a snapshot image of the canvas (admin)",
-    "contexts": [0],
-    "default_member_permissions": "8"
+    "description": "Generate a snapshot image of the canvas",
+    "contexts": [0]
   },
   {
     "name": "admin",

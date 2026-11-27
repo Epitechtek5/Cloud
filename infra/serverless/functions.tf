@@ -24,9 +24,7 @@ module "health" {
 
   depends_on = [
     google_service_account.gateway,
-    google_project_iam_member.functions_build_logs,
-    google_project_iam_member.functions_build_sources,
-    google_artifact_registry_repository_iam_member.functions_build,
+    time_sleep.functions_build_iam,
   ]
 }
 
@@ -55,7 +53,7 @@ module "discord_proxy" {
   build_service_account_id = google_service_account.functions_build.id
 
   secret_env = {
-    DISCORD_PUBLIC_KEY = google_secret_manager_secret.this["discord-public-key"].secret_id
+    DISCORD_PUBLIC_KEY = data.google_secret_manager_secret.this["discord-public-key"].secret_id
   }
 
   # Called by the API Gateway from outside the VPC, still behind roles/run.invoker.
@@ -67,8 +65,6 @@ module "discord_proxy" {
 
   depends_on = [
     google_service_account.gateway,
-    google_project_iam_member.functions_build_logs,
-    google_project_iam_member.functions_build_sources,
-    google_artifact_registry_repository_iam_member.functions_build,
+    time_sleep.functions_build_iam,
   ]
 }
