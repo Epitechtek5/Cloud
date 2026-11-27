@@ -29,6 +29,44 @@ app/functions/
   (`app_artifact_dir`); each function is one `modules/function` instance in `infra/serverless/functions.tf`,
   with its own `entry_point` and its own service account (see `infra/serverless/README.md`).
 
+## Functions at a glance
+
+Every function is a Cloud Run function (2nd gen, Node 22) with **its own service account** holding only what it
+needs, `roles/logging.logWriter` and `roles/cloudtrace.agent` (module `infra/serverless/modules/function`). None is
+public: the HTTP ones only accept the API Gateway service account (`roles/run.invoker`), the workers only accept the
+OIDC identity of their own push subscription and are `ALLOW_INTERNAL_ONLY`.
+
+| Function | Entry point | Trigger | Data access | Timeout / max instances | Doc |
+| --- | --- | --- | --- | --- | --- |
+| `discord-proxy` | `discordProxy` | `POST /discord/interactions` (gateway) | reads the `discord-public-key` secret, publishes `discord.command` | 10 s / 5 | `discord-bot.md` |
+| `command-worker` | `commandWorker` | push `discord.command.sub` | Firestore read/write (`datastore.user`), publishes `pixel.draw`, `pixel.processed`, `snapshot.requested`, answers Discord | 55 s / 5 | `discord-bot.md` |
+| `draw-proxy` | `drawProxy` | `POST /pixels` (gateway, Firebase JWT) | publishes `pixel.draw` only, no Firestore | 10 s / 10 | below |
+| `pixel-reader` | `pixelReader` | `GET /pixels/{x}/{y}` (gateway, Firebase JWT) | Firestore read only (`datastore.viewer`) | 10 s / 5 | below |
+| `draw-worker` | `drawWorker` | push `pixel.draw.sub` | Firestore read/write, the **only writer of the grid**; publishes `pixel.processed` | 25 s / 10 | below |
+| `snapshot-worker` | `snapshotWorker` | push `snapshot.requested.sub` | Firestore read, create-only on the snapshots bucket (`objectCreator`) | 290 s, 1 GiB / 2 | below |
+| `snapshot-notifier` | `snapshotNotifier` | bucket notification → `snapshot.ready` → push | reads the object, signs URLs (`signBlob` on itself only), answers Discord | 30 s / 2 | below |
+| `auth-discord` | `authDiscord` | `POST /auth/discord` (gateway) | Discord OAuth2 secret, mints Firebase custom tokens (`signJwt` on itself only) | 20 s / 3 | `discord-activity.md` |
+| `health` | `hello` | `GET /health` (gateway) | none | 60 s / 1 | |
+| `gateway-stub` | `notImplemented` | routes whose function does not exist yet | none | 60 s / 1 | |
+
+`max_instances` is the cost ceiling: beyond it Cloud Run answers 429, Pub/Sub retries with backoff and the backlog
+absorbs the burst (visible on the dashboard, `docs/observability.md`).
+
+## Design choices to defend
+
+| Choice | Why | Where |
+| --- | --- | --- |
+| **Proxy + queue + worker** for every write | The proxy answers in milliseconds (Discord requires 3 s, the web wants a fast 202); the worker scales on its own, retries, and dead-letters what keeps failing. A burst of brush strokes becomes a backlog, not errors | `pubsub.md` |
+| **Push subscriptions** (not pull) | Scale to zero: no instance polls an empty queue. Each push is OIDC-signed by a dedicated identity, the only invoker of its worker | `infra/serverless/pubsub.tf` |
+| **At-least-once + idempotency markers** | Pub/Sub redelivers. `processedCommands/{interaction}` and `processedBatches/{batch}` are written **in the same transaction** as the effect, so a redelivery changes nothing and replays the stored outcome (quota counted once) | `data-model.md` §6 |
+| **One document per pixel**, `tile` field, 256×256 tiles | 10¹⁰ cells can't be one document or one array. A pixel written whole is never half from one draw and half from another (last write wins on the server timestamp). Tiles give the front one listener per visible square | `data-model.md` |
+| **Clear = new generation** (`clearedAt` + `epoch`) | Deleting up to 10¹⁰ documents is neither fast nor cheap. Pixels older than `clearedAt` count as erased everywhere | `discord-bot.md` |
+| **Rate limit in the transaction** (fixed 60 s window, 20 px default, per-user override) | Read and written with the pixels, so concurrent batches of one user can never exceed the limit; partial acceptance keeps the first pixels of a stroke | `src/draw/rules.js` |
+| **Admin = configured role/user ids**, fail closed | The Discord permission bitfield is the guild's, not ours; an empty list means nobody is admin | `src/commands/authorize.js` |
+| **Snapshots through the bucket** (create-only object, notification, signed URL) | The PNG can take seconds; the worker never holds the Discord answer. Create-only (`ifGenerationMatch: 0`) makes a redelivery a no-op, and the bucket stays private: the user gets a V4 URL valid `snapshot_url_ttl_seconds` | below |
+| **Structured logs + correlation id + traces** | One id from the gateway to the last worker, in logs and spans: a request is followed end to end | `observability.md` |
+| **No framework, few dependencies** | Google client libraries and OpenTelemetry only; the PNG encoder uses `node:zlib`. Less attack surface, fast cold starts | `open-source-functions.md` |
+
 ## Shared library (`src/lib`)
 
 | Module | What it gives |
@@ -50,7 +88,7 @@ app/functions/
 | `storage.js` | `getStorage()`: lazy Cloud Storage client. |
 | `discordWebhook.js` | `createInteractionClient()`: `editOriginal` / `followUp` of an interaction (JSON or multipart with files), errors flagged `retryable`. |
 | `snowflake.js` | `snowflakeTime(id)`: creation time of a Discord id. |
-| `tracing.js` | `initTracing()` hook, a no-op until the tracing issue registers the OpenTelemetry bootstrap. |
+| `tracing.js` | `registerTracingHook` / `initTracing()`: runs the OpenTelemetry bootstrap (`otel.js`) once per instance; a failed start is retried by the next call. |
 
 ## Correlation id, end to end
 

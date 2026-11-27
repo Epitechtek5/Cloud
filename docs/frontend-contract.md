@@ -1,8 +1,8 @@
 # Contrat front / services serverless
 
-> **Statut : proposition** à valider avec l'équipe `serverless`. Elle décrit ce dont le front a besoin ; tout ce qui
-> est marqué **OUVERT** est à trancher. Si le modèle change, seul l'adaptateur GCP du front (`src/backend/`) change,
-> l'UI reste intacte : elle ne dépend que de trois interfaces (`src/contract.ts`).
+> **Statut : implémenté côté fonctions** : `POST /pixels`, `GET /pixels/{x}/{y}`, `userEvents`, quotas, pause et
+> `clearedAt` (#64, #65, #66) ; rasters des tuiles : #68. La section 4 (aperçu) reste hors périmètre.
+> Si le modèle change, seul l'adaptateur GCP du front (`src/backend/`) change, l'UI reste intacte : elle ne dépend que de trois interfaces (`src/contract.ts`).
 
 Le navigateur ne parle qu'à trois choses, toutes serverless : l'**API Gateway** (HTTPS, authentifiée), **Firestore**
 (lecture seule, temps réel) et la **distribution des tuiles** (rasters). Il n'écrit jamais dans le stockage.
