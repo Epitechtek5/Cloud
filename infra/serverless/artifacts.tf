@@ -69,6 +69,15 @@ resource "google_storage_bucket_object" "functions_source" {
   name   = "functions-${local.functions_zip_md5}.zip"
   bucket = google_storage_bucket.functions_source.name
   source = local.functions_zip
+
+  # Explicit since the gateway no longer reads the function URLs (gateway.tf),
+  # which used to force it: the new archive exists before the functions move
+  # to it, and the old one goes last. The md5 name never collides. Without it,
+  # an apply that both replaces the archive and destroys an api config still
+  # depending on the functions in the state has a dependency cycle.
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 # Images built by Cloud Build for the functions, with a cleanup policy so old
