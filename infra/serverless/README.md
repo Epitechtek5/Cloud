@@ -65,9 +65,10 @@ browser / Discord proxy ──HTTPS──> global external Application LB (manag
 - **First deploy of an environment**: the certificate takes up to about an hour to become `ACTIVE`; until then
   HTTPS fails and the smoke test may be red. Re-run the deploy job once
   `gcloud compute ssl-certificates list` shows `ACTIVE`.
-- **The IP is the identity**: `destroy.yml` releases the address, so after a destroy and redeploy the sslip.io
-  host changes, and so do the Discord OAuth2 redirect and the Activity `/` mapping
-  ([docs/discord-activity.md](../../docs/discord-activity.md) §1).
+- **The IP is the identity**: the global address `frontend` is reserved by `infra/access` (`persistent.tf`), not by
+  this stack, so `destroy.yml` keeps it. The sslip.io host, the certificate domain, the Discord OAuth2 redirect and
+  the Activity `/` mapping ([docs/discord-activity.md](../../docs/discord-activity.md) §1) stay the same after a
+  destroy and redeploy ([docs/reproducibility.md](../../docs/reproducibility.md)).
 - **Tiles** (open question A, #68): `local.frontend_tiles_backend` adds a `/tiles/*` route to a backend service
   (serverless NEG of the tile-reader, ingress `internal-and-cloud-load-balancing`) on the same origin and CDN.
 - **API** (#60): `apiBase` is the URL of the API Gateway (`local.gateway_url`); `var.api_base_url` overrides it.
@@ -203,7 +204,9 @@ and the snapshots bucket refuses `force_destroy`, so `destroy.yml` stops there u
 printf '%s' "$VALUE" | gcloud secrets versions add discord-public-key --project <project_id> --data-file=-
 ```
 
-`discord-public-key`, `discord-bot-token`, `discord-oauth-client-secret`: never in tfvars.
+`discord-public-key`, `discord-bot-token`, `discord-oauth-client-secret`: never in tfvars. Their containers belong to
+`infra/access` (`persistent.tf`): this stack only reads them, so `destroy.yml` keeps the containers and their values,
+and the next apply needs no manual step.
 
 A function cannot start while one of its secrets has no version: add them **before** the first apply that deploys it.
 The session JWT needs no secret: `auth-discord` signs it as its own service account (IAM Credentials), and the gateway

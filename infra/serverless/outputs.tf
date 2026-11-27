@@ -6,7 +6,7 @@ output "app_url" {
 }
 
 output "frontend_ip" {
-  value       = google_compute_global_address.frontend.address
+  value       = data.google_compute_global_address.frontend.address
   description = "IP of the frontend load balancer (A record of frontend_domain when a domain is used)"
 }
 
@@ -36,8 +36,8 @@ output "functions_build_service_account" {
 }
 
 output "secret_ids" {
-  value       = { for k, s in google_secret_manager_secret.this : k => s.id }
-  description = "Secret Manager containers, keyed by secret id (values are added out of band)"
+  value       = { for k, s in data.google_secret_manager_secret.this : k => s.id }
+  description = "Secret Manager containers (owned by infra/access), keyed by secret id (values are added out of band)"
 }
 
 output "pubsub_topics" {

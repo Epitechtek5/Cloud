@@ -16,6 +16,17 @@ export const USER_EVENT_TTL_MS = 3600 * 1000;
 const toPixel = ({ x, y, color }) => ({ x, y, color });
 
 /**
+ * Document id of a batch's marker and rejection: the client chooses `batchId`,
+ * so it is only unique per user. Keyed on it alone, a batch of one user with
+ * the id of another user's batch would be dropped as a duplicate and the other
+ * user's outcome replayed. The front reads `userEvents` by `uid` and the
+ * `batchId` field, never by document id.
+ */
+export function batchKey(uid, batchId) {
+  return `${uid}_${batchId}`;
+}
+
+/**
  * @param {import("@google-cloud/firestore").Firestore} db
  * @param {object} options
  * @param {number} options.defaultLimit  pixels per window without override
@@ -34,7 +45,7 @@ export function createDrawStore(db, { defaultLimit, windowMs, now = Date.now }) 
       const { FieldValue, Timestamp } = await firestoreTypes();
       const uid = batch.user.id;
       return firestoreSpan("transaction draw", () => db.runTransaction(async (tx) => {
-        const markerRef = col(COLLECTIONS.processedBatches).doc(batch.batchId);
+        const markerRef = col(COLLECTIONS.processedBatches).doc(batchKey(uid, batch.batchId));
         const userRef = col(COLLECTIONS.users).doc(uid);
         const [marker, session, user] = await Promise.all([tx.get(markerRef), tx.get(db.doc(SESSION_STATE)), tx.get(userRef)]);
         if (marker.exists) return { duplicate: true, ...marker.data().outcome };
@@ -72,7 +83,7 @@ export function createDrawStore(db, { defaultLimit, windowMs, now = Date.now }) 
           );
 
         if (decision.rejected.length > 0)
-          tx.set(col(COLLECTIONS.userEvents).doc(batch.batchId), {
+          tx.set(col(COLLECTIONS.userEvents).doc(batchKey(uid, batch.batchId)), {
             uid,
             type: "rejected",
             reason: decision.reason,
@@ -96,7 +107,7 @@ export function createDrawStore(db, { defaultLimit, windowMs, now = Date.now }) 
     /** Records a batch refused before the transaction (invalid message) for its author. */
     async rejectInvalid({ batchId, uid, pixels }) {
       const { FieldValue, Timestamp } = await firestoreTypes();
-      await firestoreSpan("set userEvents", () => col(COLLECTIONS.userEvents).doc(batchId).set({
+      await firestoreSpan("set userEvents", () => col(COLLECTIONS.userEvents).doc(batchKey(uid, batchId)).set({
         uid,
         type: "rejected",
         reason: "invalid",

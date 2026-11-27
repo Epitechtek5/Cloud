@@ -76,8 +76,10 @@ POST /discord/interactions (discord-proxy) → discord.command publish → disco
   (Cloud Run samples few incoming requests) is kept with `TRACE_SAMPLE_RATIO`, 1 by default, so that any `/draw` or
   brush stroke can be followed during the demo. Lower it on prd if the Trace quota matters. `OTEL_SDK_DISABLED=true`
   turns tracing off.
-- **Export**: batched, flushed before a worker acks its message (Cloud Run may take the CPU away after the response),
-  and on `SIGTERM`. A failing exporter never fails a request.
+- **Export**: batched, and flushed **before the response leaves**: a worker flushes before it acks its message, and the
+  HTTP entry points (`tracedHttp`) hold `res.end` until their SERVER span is exported. With request-only CPU (the Cloud
+  Run default) an instance gets no CPU once it has answered, so a flush after the response would stay frozen until the
+  next request. Also flushed on `SIGTERM`. A failing exporter never fails a request.
 - **No secrets in spans**: the Discord interaction token is in the webhook URL, which is never recorded (method and
   status only).
 
