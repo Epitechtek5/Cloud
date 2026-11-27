@@ -63,7 +63,21 @@ Pour ne pas relire des milliers de documents, chaque tuile a un **raster** rég�
 - En-tête `X-Tile-Version: <epoch ms>` = `t` du pixel le plus récent inclus dans le raster (`0` si 404). Il doit être exposé en CORS
   (`Access-Control-Expose-Headers`) si l'origine diffère de celle de l'app.
 - `Cache-Control: public, max-age=60` : la fraîcheur vient des deltas (section 3), pas du cache.
-- Le bucket qui contient les rasters reste **privé** (exigence du sujet) ; voir la question ouverte A.
+- Le bucket qui contient les rasters reste **privé** (exigence du sujet) : la fonction `tile-reader` est son seul lecteur, derrière le
+  load balancer et le CDN du front (même origine, donc pas de CORS ; question A, tranchée en section 6).
+
+Ce que fait le backend (#68, `app/functions/src/tiles`, [functions.md](functions.md)) :
+
+- **Version = plancher.** `X-Tile-Version` est le `t` du pixel le plus récent du raster, **arrondi à la milliseconde inférieure**.
+  Le front redemande `t > version` : un pixel de la même milliseconde revient en double (la même couleur est réappliquée,
+  sans effet). Arrondir vers le haut perdrait les pixels de la fin de la milliseconde. La version est écrite dans le PNG
+  lui-même (chunk `tEXt` `Tile-Version`), donc elle correspond toujours aux octets servis, même pendant un nouveau rendu.
+- **Après `/admin clear`**, un raster rendu avant l'effacement (`version <= session/state.clearedAt`) n'est jamais servi : la
+  réponse est un `404` avec `X-Tile-Version: 0`, comme pour une tuile vide. Attention côté front : sur ce `404`, `since = 0` relirait
+  les pixels d'**avant** l'effacement (ils existent encore dans Firestore) ; le front doit prendre `since = max(version, clearedAt)`
+  (`clearedAt` de `session/state`). Le CDN peut garder un raster effacé jusqu'à 60 s (`max-age`).
+- **Fraîcheur.** Un pixel dessiné apparaît dans son raster en 1 à 3 s ; une rafale de pinceau est regroupée (au plus un rendu par
+  tuile et par 1,5 s). Le `404` est mis en cache 30 s seulement, pour qu'une tuile peinte pour la première fois ne reste pas « vide ».
 
 ## 3. Temps réel : Firestore en lecture seule (`RealtimeChannel`)
 
@@ -146,8 +160,16 @@ temps réel au pixel près (agrégat) ; à valider que c'est acceptable pour le 
   qui lit GCS (simple, mais la gateway GCP ne met pas en cache) ; (2) la même fonction derrière le CDN/hébergement du front avec
   `Cache-Control` (même origine donc pas de CORS, et les mappings Discord restent simples) ; (3) URLs signées courtes
   (`GET /tiles/{tx}/{ty}/url`, un aller-retour de plus). Recommandation : **(2)**.
-  Préparé par #70 sans être figé : le load balancer du front a un emplacement pour une route `/tiles/*`
-  (`local.frontend_tiles_backend` dans `infra/serverless/frontend.tf`) ; le choix final et la fonction relèvent de #68.
+  **DÉCISION PROVISOIRE (#68) : option (2).** La route `/tiles/*` du load balancer du front (`local.frontend_tiles_backend`,
+  `infra/serverless/frontend.tf`) pointe vers un service backend avec Cloud CDN (`USE_ORIGIN_HEADERS`) et un NEG serverless de la
+  fonction `tile-reader` (`infra/serverless/tiles.tf`). Raisons : même origine (aucun CORS, les mappings Discord restent
+  simples), le CDN absorbe le trafic (le front ouvre 100 à 150 tuiles par page) alors que la gateway n'a pas de cache, et le front
+  n'envoie pas de JWT pour les tuiles. Contrepartie à valider : cette route ne passe **pas** par l'API Gateway. Elle ne sert que des
+  PNG en lecture seule d'un canvas visible de tous les membres ; le lock est l'ingress de la fonction
+  (`internal-and-cloud-load-balancing`, l'URL `run.app` répond 403) et non IAM, car un NEG serverless ne signe pas ses requêtes
+  (`allUsers` est donc `run.invoker`). Alternatives écartées : (1) la gateway (pas de cache, JWT exigé, un appel de fonction par
+  tuile) ; (3) URLs signées (un aller-retour de plus par tuile) ; un backend bucket direct sur le bucket `tiles` (aucune fonction),
+  impossible ici car il ne peut pas produire l'en-tête `X-Tile-Version` ni le `404` sur tuile vide. `gateway_tiles_route` reste `false`.
 - **B. Hébergement du front.** `deploy-env.yml` passe `dist/` à Terraform (`app_artifact_dir`) et attend un output `app_url`.
   Qui génère `/config.json` (`env`, `apiBase`, `discordClientId` de l'environnement, config Firebase) à côté de `dist/` ?
   **Proposé par #70 (provisoire, à valider)** : la stack `infra/serverless` (Terraform) écrit `config.json` à partir des
@@ -156,6 +178,11 @@ temps réel au pixel près (agrégat) ; à valider que c'est acceptable pour le 
   `<ip>.sslip.io` (voir `infra/serverless/README.md`, « Frontend hosting »). `apiBase` reste vide jusqu'à la gateway (#60).
 - **C. Granularité des tuiles Firestore et fréquence de régénération des rasters.** **DÉCISION PROVISOIRE (#59)**, à valider avec
   Quentin : tuiles de **256x256** ; rasters régénérés **par événement, avec coalescence par tuile** (un seul rendu en cours par tuile,
-  aucun rendu pour une tuile calme). Détail et alternatives (512x512, Cloud Scheduler périodique) : [data-model.md](data-model.md) §2 et §4.
-- **D. Mini-map** : acceptable qu'elle soit approximative ?
+  aucun rendu pour une tuile calme). **Réalisé dans #68** (un leader par tuile, au plus un rendu par tuile toutes les 1,5 s, rendu
+  incrémental : ancien raster + pixels plus récents). Détail et alternatives (512x512, Cloud Scheduler périodique) : [data-model.md](data-model.md) §2 et §4.
+- **D. Mini-map** : acceptable qu'elle soit approximative ? **Non livrée dans #68** (optionnelle). Piste simple si l'équipe la veut :
+  1 pixel d'aperçu = 128x128 de la grille (782x782 pour toute la grille, soit exactement 2x2 pixels par tuile), la couleur du
+  dernier pixel peint du bloc ; chaque rendu de tuile met à jour son bloc de 2x2 dans l'objet `overview.png` (écriture conditionnelle sur la
+  génération, avec reprise en cas de conflit). Elle n'est pas faite car 391 x 391 tuiles écrivent le même objet : il faudrait
+  regrouper les rendus (Cloud Scheduler) plutôt que d'écrire à chaque tuile.
 - **E. Firestore dans l'iframe Discord** : à valider dans une vraie Activity (voir `discord-activity.md` §4).
