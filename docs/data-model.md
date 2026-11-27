@@ -14,8 +14,8 @@ lire ou d'écrire quoi.
 | État courant des pixels | Firestore `pixels/{x}_{y}` | worker de dessin (IAM) | navigateur (règles), inspection, rendu des tuiles |
 | Pause globale, génération de la grille | Firestore `session/state` | worker de commandes (IAM) | navigateur, workers |
 | Quota d'un utilisateur `{limit, used, windowStart, override}` | Firestore `users/{uid}` | worker de dessin, `override` par le worker de commandes (IAM) | son propriétaire seulement |
-| Pixels refusés | Firestore `userEvents/{id}` (TTL) | worker de dessin (IAM) | son propriétaire seulement |
-| Lots déjà traités | Firestore `processedBatches/{batchId}` (TTL) | worker de dessin (IAM) | workers uniquement |
+| Pixels refusés | Firestore `userEvents/{uid}_{batchId}` (TTL) | worker de dessin (IAM) | son propriétaire seulement |
+| Lots déjà traités | Firestore `processedBatches/{uid}_{batchId}` (TTL) | worker de dessin (IAM) | workers uniquement |
 | Commandes Discord déjà traitées | Firestore `processedCommands/{interactionId}` (TTL) | worker de commandes (IAM) | workers uniquement |
 | Raster de chaque tuile | bucket privé `<projet>-tiles`, `{tx}/{ty}.png` | worker de rendu (IAM) | fonction de lecture des tuiles (IAM) |
 | Images `/snapshot` | bucket privé `<projet>-snapshots` | snapshot-worker (IAM) | notifier, qui signe une URL courte |
@@ -131,8 +131,10 @@ valider avec Quentin, qui écrit ces workers.
   pixel est son propre document, donc pas de verrou sur une tuile.
 - **Quota** (`users/{uid}`) : lu et incrémenté dans une transaction (mode `PESSIMISTIC` de la base), pour que deux lots
   simultanés du même utilisateur ne dépassent pas sa limite.
-- **Pub/Sub livre « au moins une fois »** : le worker crée `processedBatches/{batchId}` dans la même transaction que le
-  reste ; si le document existe déjà, le lot a déjà été appliqué et il est ignoré.
+- **Pub/Sub livre « au moins une fois »** : le worker crée `processedBatches/{uid}_{batchId}` dans la même transaction
+  que le reste ; si le document existe déjà, le lot a déjà été appliqué et il est ignoré. La clé inclut `uid` : le
+  `batchId` est choisi par le client, il n'est unique que pour un même utilisateur (sinon le lot d'un utilisateur
+  pourrait être pris pour celui d'un autre).
 - **TTL** : `processedBatches` et `userEvents` ont un champ `expireAt` (horodatage) que le worker remplit ; Firestore
   supprime le document une fois cette date passée (en général dans les 24 h). `processedBatches` doit vivre plus
   longtemps que la rétention Pub/Sub (7 jours au plus) ; `userEvents` environ une heure.
