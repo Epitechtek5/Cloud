@@ -1,4 +1,5 @@
 import { TILE_SIZE, type TileRaster, type TileSource } from '../../contract';
+import { readPngVersion } from './pngVersion';
 
 export interface TileDeps {
   /** RuntimeConfig.tilesBase, without trailing slash. */
@@ -25,9 +26,10 @@ async function decodePng(png: Blob): Promise<Uint8ClampedArray> {
 }
 
 /**
- * `GET {base}/{tx}/{ty}.png` (docs/frontend-contract.md section 2): a 256x256 PNG and the
- * `X-Tile-Version` header, the time of the newest pixel it contains. A 404 means "nothing
- * was ever painted here": the real-time channel then supplies every pixel (`since = 0`).
+ * `GET {base}/{tx}/{ty}.png` (docs/frontend-contract.md section 2): a 256x256 PNG served from the
+ * private bucket by the load balancer, with its version (the time of the newest pixel it contains)
+ * inside the PNG. A 404 means "nothing painted here since the last clear": the real-time channel then
+ * supplies every pixel (from `max(0, clearedAt)`, see TileManager).
  */
 export function createTileSource(d: TileDeps): TileSource {
   const decode = d.decode ?? decodePng;
@@ -41,10 +43,14 @@ export function createTileSource(d: TileDeps): TileSource {
       if (!(res.headers.get('Content-Type') ?? '').toLowerCase().startsWith('image/png')) {
         throw new Error(`Tile ${tx},${ty} is not a PNG (is the tile service deployed?)`);
       }
-      const raw = res.headers.get('X-Tile-Version');
-      const version = raw !== null && /^\d+$/.test(raw) ? Number(raw) : NaN;
-      if (!Number.isSafeInteger(version)) throw new Error(`Tile ${tx},${ty} has no valid X-Tile-Version header`);
-      return { rgba: await decode(await res.blob()), version };
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      let version: number;
+      try {
+        version = readPngVersion(bytes);
+      } catch (e) {
+        throw new Error(`Tile ${tx},${ty}: ${(e as Error).message}`, { cause: e });
+      }
+      return { rgba: await decode(new Blob([bytes], { type: 'image/png' })), version };
     },
   };
 }

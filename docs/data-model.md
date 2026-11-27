@@ -52,7 +52,7 @@ Alternative : 512x512 (4 fois moins de listeners, rasters plus lourds). À valid
 
 Pour chaque tuile visible, le front :
 
-1. télécharge le raster et lit sa version `v` (`X-Tile-Version`, le `t` du pixel le plus récent qu'il contient) ;
+1. télécharge le raster et lit sa version `v` (chunk `Tile-Version` du PNG, le `t` du pixel le plus récent qu'il contient) ;
 2. ouvre un listener Firestore `pixels where tile == "tx_ty" and t > v orderBy t limit 65536`.
 
 Le premier résultat ne contient que les pixels plus récents que le raster, puis chaque écriture arrive en **delta** (temps

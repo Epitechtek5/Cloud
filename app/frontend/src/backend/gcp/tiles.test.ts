@@ -3,11 +3,21 @@ import { TILE_SIZE } from '../../contract';
 import { createTileSource } from './tiles';
 
 const rgba = new Uint8ClampedArray(TILE_SIZE * TILE_SIZE * 4).fill(7);
-const png = (headers: Record<string, string> = {}) =>
-  new Response(new Blob(['png']), { headers: { 'Content-Type': 'image/png', 'X-Tile-Version': '1700000000123', ...headers } });
+
+/** Minimal PNG framing with the renderer's tEXt chunk (pngVersion.test.ts covers the parsing). */
+function pngBytes(version: string | null): Uint8Array<ArrayBuffer> {
+  const chunk = (type: string, data: string) => {
+    const n = data.length;
+    return [0, 0, (n >>> 8) & 255, n & 255, ...[...type, ...data].map((c) => c.charCodeAt(0)), 0, 0, 0, 0];
+  };
+  const text = version === null ? [] : chunk('tEXt', `Tile-Version\0${version}`);
+  return new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...chunk('IHDR', '\0'.repeat(13)), ...text, ...chunk('IEND', '')]);
+}
+const png = (version: string | null = '1700000000123') =>
+  new Response(pngBytes(version), { headers: { 'Content-Type': 'image/png' } });
 const mk = (res: Response) => {
   const f = vi.fn(async () => res);
-  const decode = vi.fn(async () => rgba);
+  const decode = vi.fn(async (_png: Blob) => rgba);
   return { f, decode, source: createTileSource({ base: '/tiles', fetch: f as unknown as typeof fetch, decode }) };
 };
 const signal = new AbortController().signal;
@@ -35,10 +45,15 @@ describe('loadTile', () => {
     await expect(mk(html).source.loadTile(0, 0, signal)).rejects.toThrow(/not a PNG/);
   });
 
-  it.each([undefined, 'abc', '-1', '1.5', '9'.repeat(20)])('refuses a missing or invalid X-Tile-Version (%s)', async (v) => {
-    const res = png();
-    if (v === undefined) res.headers.delete('X-Tile-Version');
-    else res.headers.set('X-Tile-Version', v);
-    await expect(mk(res).source.loadTile(0, 0, signal)).rejects.toThrow(/X-Tile-Version/);
+  it.each([null, 'abc', '-1', '1.5', '9'.repeat(20)])('refuses a raster without a valid version inside (%s)', async (v) => {
+    await expect(mk(png(v)).source.loadTile(0, 0, signal)).rejects.toThrow(/Tile 0,0: .*Tile-Version/);
+  });
+
+  it('hands the same bytes to the decoder', async () => {
+    const { decode, source } = mk(png());
+    await source.loadTile(0, 0, signal);
+    const blob = decode.mock.calls[0]![0];
+    expect(blob.type).toBe('image/png');
+    expect(new Uint8Array(await blob.arrayBuffer())).toEqual(pngBytes('1700000000123'));
   });
 });

@@ -54,7 +54,7 @@ export type Unsubscribe = () => void;
 export interface TileRaster {
   /** RGBA, TILE_SIZE*TILE_SIZE*4. Unpainted pixels have alpha 0. `null` when nothing was ever painted there. */
   rgba: Uint8ClampedArray | null;
-  /** Epoch ms of the most recent pixel included in the raster (`X-Tile-Version`); 0 for an empty tile. */
+  /** Epoch ms of the most recent pixel included in the raster (`Tile-Version` text chunk of the PNG); 0 for an empty tile. */
   version: number;
 }
 

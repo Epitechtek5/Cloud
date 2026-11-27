@@ -22,7 +22,7 @@ export function pixelFromDoc(d: Doc): PixelDelta | null {
 
 /**
  * `session/state` = `{ paused, clearedAt, epoch, updatedAt }`; the document does not exist until the first
- * /admin pause or clear. `clearedAt` is a server timestamp, floored to the millisecond like `X-Tile-Version`.
+ * /admin pause or clear. `clearedAt` is a server timestamp, floored to the millisecond like the tile versions.
  */
 export function sessionFromDoc(d: Doc): SessionState {
   const clearedAt = d?.clearedAt;
