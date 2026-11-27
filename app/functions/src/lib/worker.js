@@ -10,6 +10,7 @@
 import { messageContext } from "./context.js";
 import { EventValidationError } from "./events.js";
 import { decodePushMessage, InvalidPushError } from "./pubsubPush.js";
+import { extractContext, flushSpans, SpanKind, tracingReady, withSpan } from "./trace.js";
 
 /**
  * @param {object} options
@@ -41,18 +42,39 @@ export function createPushHandler({ functionName, expect, handle, onInvalid, log
       return res.status(400).send("invalid message");
     }
 
-    const { correlationId, log } = messageContext(message.attributes, { functionName, logger, headers: req.headers });
-    const ctx = { correlationId, log, headers: req.headers };
-    try {
-      await handle(message, ctx);
-      return res.status(204).end();
-    } catch (err) {
-      log.error("processing failed, the message will be retried", {
-        err,
-        messageId: message.messageId,
-        deliveryAttempt: message.deliveryAttempt,
-      });
-      return res.status(500).send("retry");
-    }
+    await tracingReady();
+    // Child of the publisher's span (traceparent attribute): one trace from
+    // the proxy to this worker and everything it calls.
+    const status = await withSpan(
+      `${message.eventType} process`,
+      {
+        kind: SpanKind.CONSUMER,
+        parent: extractContext(message.attributes),
+        attributes: {
+          "messaging.system": "gcp_pubsub",
+          "messaging.message.id": message.messageId,
+          "messaging.gcp_pubsub.message.delivery_attempt": message.deliveryAttempt ?? 1,
+          correlation_id: message.correlationId,
+        },
+      },
+      async (span) => {
+        const { correlationId, log } = messageContext(message.attributes, { functionName, logger, headers: req.headers });
+        try {
+          await handle(message, { correlationId, log, headers: req.headers });
+          return 204;
+        } catch (err) {
+          span.recordException(err);
+          span.setStatus({ code: 2, message: err?.name });
+          log.error("processing failed, the message will be retried", {
+            err,
+            messageId: message.messageId,
+            deliveryAttempt: message.deliveryAttempt,
+          });
+          return 500;
+        }
+      },
+    );
+    await flushSpans();
+    return status === 204 ? res.status(204).end() : res.status(500).send("retry");
   };
 }

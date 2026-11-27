@@ -47,13 +47,18 @@ module "draw_worker" {
   # Within the 30 s ack deadline of pixel.draw.
   timeout_seconds = 25
   # A brush burst scales out here; Firestore transactions keep each user's
-  # quota consistent across instances.
-  max_instances = 10
+  # quota consistent across instances and across concurrent requests.
+  # Each batch mostly waits on Firestore, so one instance handles several at
+  # once (Cloud Run needs a full vCPU for concurrency > 1). 20 x 10 = 200
+  # batches in flight: past that Cloud Run answers 429, which Pub/Sub counts as
+  # a failed delivery attempt and, after 5, dead-letters a valid batch.
+  max_instances = 20
+  cpu           = "1"
+  memory        = "512M"
+  concurrency   = 10
 
   depends_on = [
-    google_project_iam_member.functions_build_logs,
-    google_project_iam_member.functions_build_sources,
-    google_artifact_registry_repository_iam_member.functions_build,
+    time_sleep.functions_build_iam,
   ]
 }
 

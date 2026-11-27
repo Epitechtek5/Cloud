@@ -58,7 +58,7 @@ interaction token authenticates that call: the worker needs no bot token and no 
 | `/admin clear` | moves the grid generation forward (`session/state.clearedAt`, `epoch`), publishes one `pixel.processed {cleared: true}` (strategy in `docs/data-model.md` §3) | ephemeral confirmation |
 | `/admin ratelimit user limit` | `users/{uid}.override` (pixels per minute, read by the draw worker) | ephemeral confirmation |
 
-- **Admin authorization in the worker.** `/admin *` and `/snapshot` require a role id of
+- **Admin authorization in the worker.** `/admin *` requires a role id of
   `discord_admin_role_ids` or a user id of `discord_admin_user_ids` (`<env>.tfvars`, see
   `infra/serverless/command_worker.tf`). The Discord permission bitfield and `default_member_permissions` are
   ignored: a guild admin can change them. Both lists empty: nobody is admin. A refusal is answered and changes
@@ -102,7 +102,7 @@ Definitions versioned in [`app/functions/commands/commands.json`](../app/functio
 | --- | --- | --- |
 | `/draw` | `x`, `y` (integers `0..99999`), `color` (`#RRGGBB`, `RRGGBB` or a palette name) | everyone |
 | `/get` | `x`, `y` (centre, optional), `size` (`16..512`, optional) | everyone |
-| `/snapshot` | none | Administrator |
+| `/snapshot` | none | everyone (subject 3.2: only `/admin` is admin-only) |
 | `/admin pause` / `resume` / `clear` | none | Administrator |
 | `/admin ratelimit` | `user` (Discord user), `limit` (pixels per minute, `0..1000`) | Administrator |
 

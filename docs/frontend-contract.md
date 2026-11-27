@@ -1,8 +1,8 @@
 # Contrat front / services serverless
 
-> **Statut : proposition** à valider avec l'équipe `serverless`. Elle décrit ce dont le front a besoin ; tout ce qui
-> est marqué **OUVERT** est à trancher. Si le modèle change, seul l'adaptateur GCP du front (`src/backend/`) change,
-> l'UI reste intacte : elle ne dépend que de trois interfaces (`src/contract.ts`).
+> **Statut : implémenté côté fonctions** : `POST /pixels`, `GET /pixels/{x}/{y}`, `userEvents`, quotas, pause et
+> `clearedAt` (#64, #65, #66) ; rasters des tuiles : #68. La section 4 (aperçu) reste hors périmètre.
+> Si le modèle change, seul l'adaptateur GCP du front (`src/backend/`) change, l'UI reste intacte : elle ne dépend que de trois interfaces (`src/contract.ts`).
 
 Le navigateur ne parle qu'à trois choses, toutes serverless : l'**API Gateway** (HTTPS, authentifiée), **Firestore**
 (lecture seule, temps réel) et la **distribution des tuiles** (rasters). Il n'écrit jamais dans le stockage.
@@ -39,7 +39,8 @@ Toutes les routes : `Authorization: Bearer <jwt>` (émis par `POST /auth/discord
 - `400 { "error": "invalid_request", "details": ["pixels[3].x must be between 0 and 99999", ...] }` si invalide (chemins seulement,
   jamais les valeurs), `401` si JWT absent ou expiré (refusé par la gateway, et par la fonction si l'utilisateur transmis manque),
   `503` si le broker est indisponible. Pas de `429` : voir l'encadré plus haut.
-- `batchId` est la clé d'**idempotence** : le worker ignore un lot déjà traité (le broker peut livrer deux fois).
+- `batchId` est la clé d'**idempotence**, propre à chaque utilisateur (`uid` + `batchId`) : le worker ignore un lot déjà
+  traité (le broker peut livrer deux fois), et deux utilisateurs qui envoient le même `batchId` ne se gênent pas.
 - Le rate limit métier (20 px/min par défaut, surcharge `/admin ratelimit`), la pause et la validation fine sont faits **par le
   worker**, pas par le proxy. Le résultat revient au front par le temps réel (section 3).
 
@@ -122,11 +123,11 @@ un pixel dont `t <= clearedAt` est effacé ([data-model.md](data-model.md) §3, 
 ### Par utilisateur : `users/{uid}` et `userEvents/{id}`
 
 - `users/{uid}` : `{ limit, used, windowStart }`, mis à jour par le worker à chaque lot ; le front affiche le quota restant.
-- `userEvents/{id}` : `{ uid, type: "rejected", reason: "rate_limited"|"paused"|"invalid", batchId, pixels: [...], t, expireAt }`, écrit par le
+- `userEvents/{uid}_{batchId}` : `{ uid, type: "rejected", reason: "rate_limited"|"paused"|"invalid", batchId, pixels: [...], t, expireAt }`, écrit par le
   worker pour les pixels refusés ; le front les écoute avec `where("uid","==",me).where("t",">", ouvertureDeLaPage)` (index composite
   `(uid, t)`) et retire les pixels optimistes concernés. Politique **TTL** sur `expireAt` (le worker met `t + 1 h`) pour limiter le stockage.
 
-### Côté workers uniquement : `processedBatches/{batchId}`
+### Côté workers uniquement : `processedBatches/{uid}_{batchId}`
 
 `{ expireAt }`, créé dans la transaction qui applique un lot ; s'il existe déjà, le lot est ignoré (idempotence, Pub/Sub livre au
 moins une fois). TTL sur `expireAt`, au-delà de la rétention Pub/Sub (7 jours). Invisible pour le navigateur.

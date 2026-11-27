@@ -55,21 +55,22 @@ module "snapshot_worker" {
   build_service_account_id = google_service_account.functions_build.id
 
   environment_variables = {
-    SNAPSHOTS_BUCKET    = google_storage_bucket.snapshots.name
-    MAX_SNAPSHOT_PIXELS = "2000000"
+    SNAPSHOTS_BUCKET             = google_storage_bucket.snapshots.name
+    MAX_SNAPSHOT_PIXELS          = "2000000"
+    MAX_SNAPSHOT_READS           = "2000000"
+    SNAPSHOT_READ_BUDGET_SECONDS = "200"
   }
 
   ingress  = "ALLOW_INTERNAL_ONLY"
   invokers = [google_service_account.snapshot_push.member]
-  # Reads every painted pixel: within the 300 s ack deadline of snapshot.requested.
+  # Reads the pixels for at most SNAPSHOT_READ_BUDGET_SECONDS, then encodes and
+  # uploads: within the 300 s ack deadline of snapshot.requested.
   timeout_seconds = 290
   memory          = "1Gi"
   max_instances   = 2
 
   depends_on = [
-    google_project_iam_member.functions_build_logs,
-    google_project_iam_member.functions_build_sources,
-    google_artifact_registry_repository_iam_member.functions_build,
+    time_sleep.functions_build_iam,
   ]
 }
 
@@ -137,9 +138,7 @@ module "snapshot_notifier" {
   max_instances   = 2
 
   depends_on = [
-    google_project_iam_member.functions_build_logs,
-    google_project_iam_member.functions_build_sources,
-    google_artifact_registry_repository_iam_member.functions_build,
+    time_sleep.functions_build_iam,
   ]
 }
 

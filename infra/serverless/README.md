@@ -25,6 +25,7 @@ of each environment: `scripts/bootstrap-state-bucket.sh` creates it (already don
 | `storage.tf` | Private `tiles` and `snapshots` buckets |
 | `tiles.tf` | Tile rasters (#68): `tile-renderer` (pixel.processed) and the backend bucket that serves the private tiles bucket behind the front's CDN |
 | `pubsub.tf` | Topics, consumer subscriptions and dead-letter topics (`modules/pubsub`, see `docs/pubsub.md`) |
+| `monitoring.tf` | Log-based metrics and the application dashboard (`modules/dashboard`, #73, `docs/observability.md`) |
 | `outputs.tf` | `app_url` (deploy smoke test contract) and ids reused by the other issues |
 
 ## Function source

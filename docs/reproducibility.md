@@ -17,6 +17,7 @@ created on their behalf, then runs `scripts/check-leftovers.sh`, which fails the
 | Budget alerts | `infra/billing` | Must watch the bill even while nothing runs | free |
 | Global address `frontend` | `infra/access` (`persistent.tf`) | The dev URL `<ip>.sslip.io`, its certificate and the Discord OAuth2 redirect URIs derive from it: a new IP would mean editing `dev.tfvars` and the Discord portal by hand | about 7 USD/month while unattached |
 | Secret containers `discord-*` | `infra/access` (`persistent.tf`) | Their values are added by hand and never stored in Git or in a state; destroyed, they would be lost and the next apply would fail (a function cannot start on a secret with no version) | free (Secret Manager: 6 active versions free) |
+| Secret containers `arc-github-app-*` (dev) | `infra/access` (`persistent.tf`) | GitHub App of the runners: External Secrets copies them into the new cluster at every apply, so the runners come back with no `kubectl create secret` (#54) | free (3 more active versions) |
 
 APIs are never disabled (`disable_on_destroy = false`) and the `default` VPC created with the project is left alone:
 both are free.
@@ -26,8 +27,11 @@ both are free.
 | Leak | Effect | Fix |
 | --- | --- | --- |
 | Discord secret values destroyed with `infra/serverless` | Next apply fails: `auth-discord` cannot start on an empty secret | Containers moved to `infra/access`; `infra/serverless` reads them (data sources) and gave them up with a `removed` block (`destroy = false`) |
+| Runners GitHub App secret created by hand in the cluster | Deleted with the namespace: runners stayed offline until someone ran `kubectl create secret` | Values in Secret Manager (`infra/access`), synced by External Secrets through Workload Identity (#54, [self-hosted-runners.md](ci/self-hosted-runners.md)) |
 | Frontend IP released by the destroy | New sslip.io host: `dev.tfvars` and the Discord portal had to be edited by hand | Address moved to `infra/access`, same name, so the IP does not change |
 | `gcf-v2-sources-<number>-<region>` (and `gcf-v2-uploads-*`) buckets | Created by Cloud Functions 2nd gen outside Terraform, left after a destroy | Removed by a step of `destroy.yml` |
+| Build of the first function started before the IAM grants of the (recreated) `fn-build` account propagated | `Access to bucket gcf-v2-sources-... denied`, function left `FAILED`, deploy red | The functions wait for `time_sleep.functions_build_iam` (90 s, only when a grant is created) (#138) |
+| Tainted function replaced with `create_before_destroy`, forced by the api config reading `module.<function>.uri` | `409 ... already exists`: the function had to be deleted by hand | The gateway builds the deterministic Cloud Run URL of each function from its name (#138) |
 
 Already fine, checked in the code: GKE has `deletion_protection = false`; Firestore uses `deletion_policy = "DELETE"`
 with delete protection on prd only; every dev bucket has `force_destroy` (the snapshots bucket refuses it on prd only);
@@ -49,13 +53,18 @@ The address and the secrets move from the serverless state to the access state w
    terraform -chdir=infra/access apply -var-file=dev.tfvars -var-file=dev.local.tfvars   # expect no change
    ```
 
-3. Same for prd **after** the release that carries #56 is deployed on prd. Do not destroy prd between the import and
-   that deploy: the old prd serverless state still owns them and would delete them.
+3. prd, done on 2026-11-27 **before** the release, because the prd plan of `dev` had a cycle (the `forget` of the
+   secrets and the replacement of the api config that still depended on them in the state): `import.sh prd`, an
+   apply of `infra/access` targeted on the adopted resources (an Owner without rights on the billing account cannot
+   plan `instructor_billing`), then `terraform state rm google_compute_global_address.frontend
+   google_secret_manager_secret.this` in the prd serverless state (backed up first), which is what the `removed`
+   blocks do. The `plan (prd, serverless)` check is green again.
 
 ## Procedure (dev)
 
-The runners cluster lives in dev and `CI_RUNNER` points to it: while dev is destroyed, the PR checks queue. Tell the
-team before starting.
+The runners cluster lives in dev: while dev is destroyed, checks on the runners (`CI_RUNNER`) queue. Tell the team
+before starting: a merge to `dev` during the destroy queues a deploy (same concurrency group) that re-creates dev as
+soon as the destroy ends (it happened in cycle 2).
 
 1. **Destroy**: Actions → `destroy` → Run workflow on `dev`, `env = dev`, `confirm = destroy-dev`.
 
@@ -91,10 +100,9 @@ team before starting.
 
 Outside GCP, so out of Terraform's reach:
 
-- **Runners GitHub App secret**: the `arc-github-app` Kubernetes secret is created by hand in the new cluster
-  ([self-hosted-runners.md](ci/self-hosted-runners.md), Install §4). Issue #54 moves it to Secret Manager.
-- **API Gateway host**: a new gateway gets a new `*.gateway.dev` host. Update the Discord Activity URL mapping `/api`
-  and, once `discord-proxy` is on, the Interactions Endpoint URL (`terraform output discord_interactions_url`).
+- **API Gateway host**: it stayed `pixel-canvas-7oi57k6.ew.gateway.dev` across both cycles (same gateway id in the
+  same project), so the Discord Activity URL mapping `/api` was kept. If it ever changes, update that mapping and,
+  once `discord-proxy` is on, the Interactions Endpoint URL (`terraform output discord_interactions_url`).
 - **Data**: the dev Firestore database and buckets start empty (dev is disposable; prd has delete protection and
   PITR).
 
@@ -112,7 +120,9 @@ that bypasses these rules still cannot get credentials for the other environment
 
 ## Results
 
+Run on dev on 2026-11-27, after #134 and #138, with no manual step between the runs.
+
 | Cycle | Destroy run | Leftover check | Apply run | Notes |
 | --- | --- | --- | --- | --- |
-| 1 | _to fill_ | _to fill_ | _to fill_ | |
-| 2 | _to fill_ | _to fill_ | _to fill_ | |
+| 1 | [46018414181](https://github.com/Epitechtek5/Cloud/actions/runs/46018414181): 100 (serverless) + 19 (foundation) destroyed, 18 min | every line `none` (in the run and by hand) | [46016502936](https://github.com/Epitechtek5/Cloud/actions/runs/46016502936) (re-run): 19 + 100 added, 21 min, smoke tests green | Same IP `136.68.161.49`, same gateway host, certificate `ACTIVE` at the end of the apply |
+| 2 | [46025167228](https://github.com/Epitechtek5/Cloud/actions/runs/46025167228): 100 + 19 destroyed, 18 min | Red in the run: 3 `arc-github-app-*` secrets. They are kept on purpose since #136 (#54), merged during the run, which also added them to `KEEP_SECRETS`; the run used the script from before. 0 unexpected with the current script | [46027562838](https://github.com/Epitechtek5/Cloud/actions/runs/46027562838) (push of #142, queued behind the destroy): 28 + 100 added, 21 min, smoke tests green | First apply with #136: the runners' GitHub App secret came from Secret Manager, no `kubectl` |

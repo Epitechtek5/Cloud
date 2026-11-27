@@ -84,3 +84,9 @@ variable "github_collaborators" {
     error_message = "Each permission must be pull, triage, push, maintain or admin."
   }
 }
+
+variable "runners_enabled" {
+  type        = bool
+  default     = false
+  description = "Keep the Secret Manager containers of the runners GitHub App (persistent.tf). Same value as runners_enabled in infra/foundation: only dev hosts the runners cluster"
+}
