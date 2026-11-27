@@ -4,13 +4,13 @@
 # app/functions/src/commands, documented in docs/discord-bot.md.
 #
 # Admin authorization is enforced here, not in Discord: only the role ids and
-# user ids below may run /admin and /snapshot. Public ids, not secrets. Both
+# user ids below may run /admin. Public ids, not secrets. Both
 # lists empty: nobody is admin (the worker fails closed).
 
 variable "discord_admin_role_ids" {
   type        = list(string)
   default     = []
-  description = "Discord role ids whose members may run /admin and /snapshot (the guild's canvas admin role)"
+  description = "Discord role ids whose members may run /admin (the guild's canvas admin role)"
 
   validation {
     condition     = alltrue([for id in var.discord_admin_role_ids : can(regex("^[0-9]{17,20}$", id))])
@@ -21,7 +21,7 @@ variable "discord_admin_role_ids" {
 variable "discord_admin_user_ids" {
   type        = list(string)
   default     = []
-  description = "Discord user ids allowed to run /admin and /snapshot whatever their roles (allow-list)"
+  description = "Discord user ids allowed to run /admin whatever their roles (allow-list)"
 
   validation {
     condition     = alltrue([for id in var.discord_admin_user_ids : can(regex("^[0-9]{17,20}$", id))])
@@ -68,9 +68,7 @@ module "command_worker" {
   max_instances   = 5
 
   depends_on = [
-    google_project_iam_member.functions_build_logs,
-    google_project_iam_member.functions_build_sources,
-    google_artifact_registry_repository_iam_member.functions_build,
+    time_sleep.functions_build_iam,
   ]
 }
 

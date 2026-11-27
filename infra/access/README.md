@@ -10,6 +10,7 @@ environment (prefix `access`).
 | `service_accounts.tf` | `gha-deploy` and `gha-plan`, and who may impersonate them (`roles/iam.workloadIdentityUser`) |
 | `roles.tf` | What each account may do, every role with its reason |
 | `humans.tf` | Team and instructor on the project, instructor on the billing account, GitHub collaborators |
+| `persistent.tf` | What a destroy of the workload must keep: the frontend IP, the Discord and runner GitHub App secret containers ([reproducibility](../../docs/reproducibility.md)) |
 | `<env>.tfvars` | Project, environment, state bucket |
 | `<env>.local.tfvars` | Team emails, billing account (git-ignored, see `local.tfvars.example`) |
 | `import.sh` | One-shot adoption of what existed before the stack (`bootstrap-wif.sh` resources, access granted by hand) |
@@ -70,10 +71,10 @@ No service account key exists: the credentials are short-lived tokens only.
 | `roles/datastore.owner` | Firestore database, indexes and fields |
 | `roles/apigateway.admin` | API Gateway: API, config and gateway. Holds no key creation, impersonation or project IAM permission |
 | `roles/firebaserules.admin` | Firestore security rules (ruleset and release) |
-| `roles/logging.configWriter` | Log-based metrics of the application dashboard (#73). Also sinks, log buckets and exclusions: no key, impersonation or IAM permission |
 | `roles/monitoring.dashboardEditor` | Cloud Monitoring dashboards (#73), nothing else |
 | `roles/resourcemanager.projectIamAdmin`, condition `grantable-roles-only` | The stacks bind project roles to the service accounts they create (node pool, functions, build). The condition limits it to the roles of `deploy_grantable_roles`: it can never grant itself `roles/owner` |
 | custom `ghaDeployIamBindings` | `get/setIamPolicy` on the resources the stacks bind (secrets, Cloud Run, Artifact Registry, buckets, Pub/Sub, service accounts). Only reaches the resource itself |
+| custom `ghaDeployLogMetrics` | `logging.logMetrics.*`: the log-based metrics of the application dashboard (#73). Not `roles/logging.configWriter`, which also manages sinks, log buckets and exclusions (export or drop every log of the project) |
 | custom `ghaDeployK8sRbac` | The ARC Helm charts create (Cluster)Roles and bindings. `roles/container.admin` would also bring impersonation, token creation and CSR approval ([runners doc](../../docs/ci/self-hosted-runners.md)) |
 | `roles/storage.objectAdmin` on the state bucket | Read and write the states and their locks |
 

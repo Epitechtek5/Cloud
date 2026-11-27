@@ -44,7 +44,7 @@ test("21 pixels within a minute: 20 accepted, 1 rejected with a userEvents entry
   assert.equal((await db.collection("pixels").get()).size, 20);
   const user = (await db.doc(`users/${UID}`).get()).data();
   assert.deepEqual([user.used, user.limit], [20, 20]);
-  const event = (await db.doc("userEvents/b2").get()).data();
+  const event = (await db.doc(`userEvents/${UID}_b2`).get()).data();
   assert.equal(event.uid, UID);
   assert.equal(event.type, "rejected");
   assert.equal(event.reason, "rate_limited");
@@ -72,7 +72,7 @@ test("redelivering a batch does not double-count the quota", emulatorOnly, async
   await send(draw("b1", line(10)));
   await Promise.all([send(draw("b1", line(10))), send(draw("b1", line(10)))]);
   assert.equal((await db.doc(`users/${UID}`).get()).data().used, 10);
-  assert.equal((await db.doc("processedBatches/b1").get()).data().outcome.accepted.length, 10);
+  assert.equal((await db.doc(`processedBatches/${UID}_b1`).get()).data().outcome.accepted.length, 10);
   // The outcome is replayed each time, consumers dedupe on batchId.
   assert.ok(published.every((p) => p.payload.batchId === "b1" && p.payload.pixels.length === 10));
 });
@@ -103,8 +103,8 @@ test("while paused every pixel is rejected (web and /draw), quota untouched", em
   await send({ ...draw("b2", line(1)), source: "discord" });
   assert.equal((await db.collection("pixels").get()).size, 0);
   assert.equal((await db.doc(`users/${UID}`).get()).exists, false);
-  assert.equal((await db.doc("userEvents/b1").get()).data().reason, "paused");
-  assert.equal((await db.doc("userEvents/b2").get()).data().reason, "paused");
+  assert.equal((await db.doc(`userEvents/${UID}_b1`).get()).data().reason, "paused");
+  assert.equal((await db.doc(`userEvents/${UID}_b2`).get()).data().reason, "paused");
 });
 
 test("the /admin ratelimit override is applied", emulatorOnly, async () => {
@@ -112,13 +112,28 @@ test("the /admin ratelimit override is applied", emulatorOnly, async () => {
   await db.doc(`users/${UID}`).set({ override: 2, limit: 2 });
   await send(draw("b1", line(5)));
   assert.equal((await db.collection("pixels").get()).size, 2);
-  assert.deepEqual((await db.doc("userEvents/b1").get()).data().pixels.length, 3);
+  assert.deepEqual((await db.doc(`userEvents/${UID}_b1`).get()).data().pixels.length, 3);
 });
 
 test("an invalid batch writes a userEvents entry with reason invalid", emulatorOnly, async () => {
   const { db, send } = setup();
   assert.equal(await send(draw("b1", [{ x: 100000, y: 1, color: 1 }])), 204);
-  const event = (await db.doc("userEvents/b1").get()).data();
+  const event = (await db.doc(`userEvents/${UID}_b1`).get()).data();
   assert.deepEqual([event.reason, event.uid, event.pixels], ["invalid", UID, [{ x: 100000, y: 1, color: 1 }]]);
   assert.equal((await db.collection("pixels").get()).size, 0);
+});
+
+test("batch ids are scoped per user: the same id from two users draws both", emulatorOnly, async () => {
+  const { db, send, published } = setup();
+  const other = "223456789012345678";
+  await send(draw("same", [{ x: 1, y: 1, color: 0x111111 }], UID, "alice"));
+  await send(draw("same", [{ x: 2, y: 2, color: 0x222222 }], other, "bob"));
+  assert.equal((await db.doc("pixels/1_1").get()).data().a, UID);
+  assert.equal((await db.doc("pixels/2_2").get()).data().a, other);
+  assert.ok((await db.doc(`processedBatches/${UID}_same`).get()).exists);
+  assert.ok((await db.doc(`processedBatches/${other}_same`).get()).exists);
+  assert.deepEqual(
+    published.map((p) => [p.payload.userId, p.payload.pixels.map((px) => px.x)]).sort(),
+    [[UID, [1]], [other, [2]]].sort(),
+  );
 });

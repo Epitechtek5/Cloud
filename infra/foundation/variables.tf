@@ -97,6 +97,17 @@ variable "runners_arc_version" {
   }
 }
 
+variable "runners_eso_version" {
+  type        = string
+  default     = "2.15.0"
+  description = "Version of the External Secrets Operator chart that syncs the runners GitHub App secret from Secret Manager. Bump it on purpose, after reading the release notes"
+
+  validation {
+    condition     = can(regex("^[0-9]+[.][0-9]+[.][0-9]+$", var.runners_eso_version))
+    error_message = "runners_eso_version must be an exact chart version, e.g. 2.15.0."
+  }
+}
+
 variable "runners_min_runners" {
   type        = number
   default     = 0

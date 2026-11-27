@@ -15,6 +15,11 @@ terraform {
       source  = "hashicorp/archive"
       version = "~> 2.7"
     }
+    # time_sleep: waits for the IAM grants of the build account to propagate.
+    time = {
+      source  = "hashicorp/time"
+      version = "~> 0.13"
+    }
   }
 }
 
