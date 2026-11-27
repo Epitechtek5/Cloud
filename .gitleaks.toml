@@ -8,6 +8,14 @@ useDefault = true
 # safe, and who approved it in review. Prefer fixing the leak (and rotating the
 # secret) over adding an entry here.
 [allowlist]
-description = "Project allowlist (empty on purpose)"
+description = "Project allowlist (one exact value, see below)"
 paths = []
-regexes = []
+regexes = [
+  # Firebase web API key of the dev project (#145): a public identifier, not a
+  # secret. It is written in config.json and served to every browser, and it is
+  # restricted to identitytoolkit and securetoken (infra/serverless/README.md,
+  # "Firebase sign-in"). The exact value only, so any other key still fails the
+  # scan; matched on the value rather than a fingerprint because fingerprints
+  # contain the commit sha and break at squash. Approved in the review of #146.
+  '''AIzaSyD14dgecoCySkrf8CdW0mqLB6LdTw51Lnc''',
+]
