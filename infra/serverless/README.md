@@ -24,6 +24,7 @@ of each environment: `scripts/bootstrap-state-bucket.sh` creates it (already don
 | `firestore.rules` | Browser security rules: read-only, own documents only (tests in `tests/firestore-rules`) |
 | `storage.tf` | Private `tiles` and `snapshots` buckets |
 | `pubsub.tf` | Topics, consumer subscriptions and dead-letter topics (`modules/pubsub`, see `docs/pubsub.md`) |
+| `monitoring.tf` | Log-based metrics and the application dashboard (`modules/dashboard`, #73, `docs/observability.md`) |
 | `outputs.tf` | `app_url` (deploy smoke test contract) and ids reused by the other issues |
 
 ## Function source
