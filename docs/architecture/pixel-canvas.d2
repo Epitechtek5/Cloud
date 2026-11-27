@@ -392,7 +392,7 @@ gcp.proxies.drawp -> gcp.broker.tdraw: "gRPC publish" {
   class: req
   style.stroke-dash: 4
 }
-gcp.proxies.auth -> discord: "HTTPS OAuth2 code exchange" { class: req }
+discord <- gcp.proxies.auth: "HTTPS OAuth2 code exchange" { class: req }
 gcp.proxies.reader -> gcp.data.fs: "gRPC read (datastore.viewer)" {
   class: req
   style.stroke-dash: 4
@@ -421,15 +421,15 @@ gcp.broker.tproc -> gcp.workers.tilew: "Pub/Sub push, HTTPS + OIDC" {
 }
 gcp.broker -> gcp.dlq: "after 5 failed deliveries\n(backoff 10 s to 600 s)" { class: evt }
 
-gcp.workers.cmdw -> gcp.broker.tdraw: "gRPC publish" {
+gcp.broker.tdraw <- gcp.workers.cmdw: "gRPC publish" {
   class: evt
   style.stroke-dash: 4
 }
-gcp.workers.cmdw -> gcp.broker.tsnapreq: "gRPC publish" {
+gcp.broker.tsnapreq <- gcp.workers.cmdw: "gRPC publish" {
   class: evt
   style.stroke-dash: 4
 }
-gcp.workers.draww -> gcp.broker.tproc: "gRPC publish\n(batch applied)" {
+gcp.broker.tproc <- gcp.workers.draww: "gRPC publish\n(batch applied)" {
   class: evt
   style.stroke-dash: 4
 }
@@ -441,7 +441,7 @@ gcp.workers.draww -> gcp.data.fs: "gRPC write, transaction\n(datastore.user)" {
   class: evt
   style.stroke-dash: 4
 }
-gcp.data.fs -> gcp.workers.snapw: "gRPC read (datastore.viewer)" {
+gcp.workers.snapw <- gcp.data.fs: "gRPC read (datastore.viewer)" {
   class: evt
   style.stroke-dash: 4
 }
@@ -449,11 +449,11 @@ gcp.workers.snapw -> gcp.data.snaps: "HTTPS write PNG\n(objectCreator)" {
   class: evt
   style.stroke-dash: 4
 }
-gcp.data.snaps -> gcp.broker.tsnapready: "GCS notification\nOBJECT_FINALIZE" {
+gcp.broker.tsnapready <- gcp.data.snaps: "GCS notification\nOBJECT_FINALIZE" {
   class: evt
   style.stroke-dash: 4
 }
-gcp.data.snaps -> gcp.workers.notif: "HTTPS read (objectViewer)" {
+gcp.workers.notif <- gcp.data.snaps: "HTTPS read (objectViewer)" {
   class: evt
   style.stroke-dash: 4
 }
@@ -461,18 +461,18 @@ gcp.workers.tilew -> gcp.data.tiles: "HTTPS write / read\n(this bucket only)" {
   class: evt
   style.stroke-dash: 4
 }
-gcp.workers.cmdw -> discord: "HTTPS webhook follow-up\n(interaction token)" {
+discord <- gcp.workers.cmdw: "HTTPS webhook follow-up\n(interaction token)" {
   class: evt
   style.stroke-dash: 4
 }
-gcp.workers.notif -> discord: "HTTPS webhook follow-up\n(signed snapshot URL)" {
+discord <- gcp.workers.notif: "HTTPS webhook follow-up\n(signed snapshot URL)" {
   class: evt
   style.stroke-dash: 4
 }
 
 # Real-time path back to the front
-gcp.data.fs -> browser: "Firestore listeners over HTTPS (WebChannel)\nFirebase custom token minted by auth-discord\nread-only security rules" { class: rt }
-gcp.proxies.auth -> browser: "HTTPS response: session JWT\n(+ Firebase custom token, off by default)" { class: rt }
+browser <- gcp.data.fs: "Firestore listeners over HTTPS (WebChannel)\nFirebase custom token minted by auth-discord\nread-only security rules" { class: rt }
+browser <- gcp.proxies.auth: "HTTPS response: session JWT\n(+ Firebase custom token, off by default)" { class: rt }
 
 # Platform
 gcp.proxies.dproxy -> gcp.shared.sm: "secret env var\n(secretAccessor on its secret)" { class: plat }
@@ -487,6 +487,6 @@ gcp.workers -> gcp.shared.logs: "stdout JSON\n(logWriter)" {
 github -> gcp.foundation.wif: "HTTPS OIDC token of the workflow" { class: plat }
 gcp.foundation.wif -> gcp.foundation.tf: "short-lived token\nof SA gha-deploy" { class: plat }
 gcp.foundation.arc -> gcp.foundation.nat: "outbound only" { class: plat }
-gcp.foundation.nat -> github: "HTTPS (runners poll GitHub)" { class: plat }
+github <- gcp.foundation.nat: "HTTPS (runners poll GitHub)" { class: plat }
 gcp.foundation.gke -> gcp.foundation.arc: "runs" { class: plat }
 gcp.foundation.vpc -> gcp.foundation.gke: "runners subnet" { class: plat }

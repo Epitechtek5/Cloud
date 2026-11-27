@@ -93,7 +93,9 @@ Every pull request that changes the architecture (a new function, topic, bucket,
 piece) edits `architecture/pixel-canvas.d2` and the SVG in the same pull request. The checkbox "architecture diagram
 updated" of the pull request template reminds you.
 
-Render it with [D2](https://d2lang.com) (CI uses version 0.6.9, keep the same one):
+Render it with [D2](https://d2lang.com). The committed SVG was rendered with D2 0.9.0 (Homebrew); after `deploy-prd`,
+`architecture.yml` renders it again with its own `D2_VERSION` (0.6.9), so the layout of that copy can differ slightly
+until both versions are aligned:
 
 ```sh
 d2 docs/architecture/pixel-canvas.d2 docs/architecture/pixel-canvas.svg
