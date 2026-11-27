@@ -19,8 +19,8 @@ Grille : `100 000 x 100 000` pixels (coordonnées `0..99999`), tuiles de `256 x 
 
 > **Gateway (#60)** : `apiBase` est l'URL de l'API Gateway (`infra/serverless/README.md`, « API Gateway »). Elle vérifie le JWT
 > (`401` sinon) puis appelle la fonction avec son propre jeton ; la fonction lit l'utilisateur dans `X-Apigateway-Api-Userinfo`
-> (claims en JSON base64url, `sub` = id Discord). Les routes `POST /pixels` et `GET /pixels/{x}/{y}` répondent `501` tant que
-> le proxy de #66 n'est pas livré. Le CORS est répondu par chaque fonction (la gateway ne fait que transmettre `OPTIONS`).
+> (claims en JSON base64url, `sub` = id Discord). `POST /pixels` est servi par `draw-proxy` et `GET /pixels/{x}/{y}` par
+> `pixel-reader` (#66, `infra/serverless/pixels_api.tf`). Le CORS est répondu par chaque fonction (la gateway ne fait que transmettre `OPTIONS`).
 > Pas de limitation à la gateway (les quotas exigent une clé d'API par projet, inutilisable pour des utilisateurs anonymes) :
 > le rate limit métier est appliqué par le worker et revient en temps réel (section 3), pas en `429`.
 
@@ -36,7 +36,9 @@ Toutes les routes : `Authorization: Bearer <jwt>` (émis par `POST /auth/discord
 - Le proxy valide : JWT, `0 <= x,y < 100000`, `0 <= color <= 0xFFFFFF`, 1 à **256** pixels, `batchId` présent.
 - Il publie **un événement** `pixel.draw` (utilisateur = `sub` du JWT, `batchId`, `correlationId`) et répond `202 { "batchId" }`
   sans attendre. Aucun travail lourd, aucune écriture de grille.
-- `400` si invalide, `401` si JWT absent ou expiré (refusé par la gateway). Pas de `429` : voir l'encadré plus haut.
+- `400 { "error": "invalid_request", "details": ["pixels[3].x must be between 0 and 99999", ...] }` si invalide (chemins seulement,
+  jamais les valeurs), `401` si JWT absent ou expiré (refusé par la gateway, et par la fonction si l'utilisateur transmis manque),
+  `503` si le broker est indisponible. Pas de `429` : voir l'encadré plus haut.
 - `batchId` est la clé d'**idempotence**, propre à chaque utilisateur (`uid` + `batchId`) : le worker ignore un lot déjà
   traité (le broker peut livrer deux fois), et deux utilisateurs qui envoient le même `batchId` ne se gênent pas.
 - Le rate limit métier (20 px/min par défaut, surcharge `/admin ratelimit`), la pause et la validation fine sont faits **par le
@@ -44,7 +46,8 @@ Toutes les routes : `Authorization: Bearer <jwt>` (émis par `POST /auth/discord
 
 ### `GET /pixels/{x}/{y}` : inspecter un pixel
 
-`200 { "x", "y", "color", "author": "<id Discord>", "authorName": "alice", "ts": <epoch ms> }` ou `404` si jamais peint.
+`200 { "x", "y", "color", "author": "<id Discord>", "authorName": "alice", "ts": <epoch ms> }` ou `404` si jamais peint
+(ou effacé par `/admin clear`), `400` hors de la grille.
 Lecture seule, sans passer par le broker (aucun effet de bord).
 
 ### `POST /auth/discord`

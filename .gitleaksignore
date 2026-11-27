@@ -9,3 +9,7 @@
 # The Discord snowflake 175928847299117063 is the public example of the Discord
 # API documentation, used to test snowflakeTime. It is an id, not a secret.
 3459c10ab838f4c104aeb73a389b1b04414b2994:app/functions/test/lib/grid.test.js:discord-client-id:26
+
+# A deliberately forged JWT (fake header, payload and signature) that the
+# live check sends to prove the API answers 401 to an invalid token.
+404436a12622c7c839c7b9f507a56f6512305c11:scripts/test-pixels-api.sh:jwt:31
