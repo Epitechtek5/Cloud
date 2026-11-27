@@ -143,12 +143,11 @@ temps réel au pixel près (agrégat) ; à valider que c'est acceptable pour le 
   (`GET /tiles/{tx}/{ty}/url`, un aller-retour de plus). Recommandation : **(2)**.
   Préparé par #70 sans être figé : le load balancer du front a un emplacement pour une route `/tiles/*`
   (`local.frontend_tiles_backend` dans `infra/serverless/frontend.tf`) ; le choix final et la fonction relèvent de #68.
-- **B. Hébergement du front.** `deploy-env.yml` passe `dist/` à Terraform (`app_artifact_dir`) et attend un output `app_url`.
-  Qui génère `/config.json` (`env`, `apiBase`, `discordClientId` de l'environnement, config Firebase) à côté de `dist/` ?
-  **Proposé par #70 (provisoire, à valider)** : la stack `infra/serverless` (Terraform) écrit `config.json` à partir des
-  tfvars de l'environnement, à côté du même `dist/` promu de dev à prd. Hébergement : bucket privé derrière un load
-  balancer HTTPS externe global avec Cloud CDN ; `app_url` est l'URL du front. Sans nom de domaine, l'hôte est
-  `<ip>.sslip.io` (voir `infra/serverless/README.md`, « Frontend hosting »). `apiBase` reste vide jusqu'à la gateway (#60).
+- **B. Hébergement du front. Tranchée et livrée (#70, #60).** `deploy-env.yml` passe `dist/` à Terraform (`app_artifact_dir`) et
+  attend un output `app_url` (l'URL du front). La stack `infra/serverless` écrit `config.json` (`env`, `apiBase` = URL de l'API
+  Gateway, `discordClientId`, config Firebase) à partir des tfvars de l'environnement, à côté du même `dist/` promu de dev à prd.
+  Hébergement : bucket privé derrière un load balancer HTTPS externe global avec Cloud CDN ; sans nom de domaine, l'hôte est
+  `<ip>.sslip.io` (voir `infra/serverless/README.md`, « Frontend hosting », et [frontend.md](frontend.md)).
 - **C. Granularité des tuiles Firestore et fréquence de régénération des rasters.** **DÉCISION PROVISOIRE (#59)**, à valider avec
   Quentin : tuiles de **256x256** ; rasters régénérés **par événement, avec coalescence par tuile** (un seul rendu en cours par tuile,
   aucun rendu pour une tuile calme). Détail et alternatives (512x512, Cloud Scheduler périodique) : [data-model.md](data-model.md) §2 et §4.
