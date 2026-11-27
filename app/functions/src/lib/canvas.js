@@ -5,7 +5,7 @@
 // forward, and every pixel written before it counts as erased
 // (docs/data-model.md, "Effacement").
 import { COLLECTIONS, SESSION_STATE, tilesOfRect } from "./grid.js";
-import { toMillis } from "./firestore.js";
+import { firestoreTypes, toMillis } from "./firestore.js";
 
 export const BACKGROUND = 0xffffff;
 
@@ -23,25 +23,50 @@ export function isVisible(pixel, clearedAt) {
   return t !== null && t > clearedAt;
 }
 
+/** Most pixel documents one region read may return (about 1.5 MB with `select`, a few seconds of reads). */
+export const MAX_REGION_READS = 100_000;
+
 /**
- * Pixels of the square region [x0, x0 + size) x [y0, y0 + size): one query per
- * tile (`tile ==`, single-field index), filtered to the region and to the
- * current grid generation.
- * @returns {Promise<Array<{ x: number, y: number, c: number }>>}
+ * Pixels of the square region [x0, x0 + size) x [y0, y0 + size), current grid
+ * generation only.
+ *
+ * One query per covered tile on the `(tile, t)` composite index
+ * (`tile == … and t > clearedAt`): pixels erased by `/admin clear` are left out
+ * by Firestore instead of being read and dropped here. The reads are bounded:
+ * each tile gets an equal share of `maxReads`, so a /get
+ * on a filled grid stays within the function's timeout instead of reading up to
+ * 9 x 65 536 documents and being retried into the DLQ. `truncated` tells the
+ * caller that some painted pixels of the region were not read (each document
+ * is the current colour of its pixel, so what is read is still exact).
+ * @returns {Promise<{ pixels: Array<{ x: number, y: number, c: number }>, truncated: boolean }>}
  */
-export async function readRegion(db, { x0, y0, size, clearedAt = 0 }) {
+export async function readRegion(db, { x0, y0, size, clearedAt = 0, maxReads = MAX_REGION_READS }) {
+  const { Timestamp } = await firestoreTypes();
   const tiles = tilesOfRect(x0, y0, size, size);
+  const perTile = Math.max(1, Math.floor(maxReads / tiles.length));
   const snaps = await Promise.all(
-    tiles.map((tile) => db.collection(COLLECTIONS.pixels).where("tile", "==", tile).select("x", "y", "c", "t").get()),
+    tiles.map((tile) =>
+      db
+        .collection(COLLECTIONS.pixels)
+        .where("tile", "==", tile)
+        .where("t", ">", Timestamp.fromMillis(clearedAt))
+        .orderBy("t")
+        .limit(perTile)
+        .select("x", "y", "c", "t")
+        .get(),
+    ),
   );
   const pixels = [];
-  for (const snap of snaps)
+  let truncated = false;
+  for (const snap of snaps) {
+    if (snap.size >= perTile) truncated = true;
     for (const doc of snap.docs) {
       const p = doc.data();
       if (p.x >= x0 && p.x < x0 + size && p.y >= y0 && p.y < y0 + size && isVisible(p, clearedAt))
         pixels.push({ x: p.x, y: p.y, c: p.c });
     }
-  return pixels;
+  }
+  return { pixels, truncated };
 }
 
 /**

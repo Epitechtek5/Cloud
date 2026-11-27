@@ -59,14 +59,15 @@ async function get(event, { store, config }) {
   const y0 = Math.min(Math.max(0, cy - Math.floor(size / 2)), GRID_SIZE - size);
 
   const { clearedAt } = await store.readSession();
-  const pixels = await store.readRegion({ x0, y0, size, clearedAt });
+  const { pixels, truncated } = await store.readRegion({ x0, y0, size, clearedAt });
   const scale = Math.max(1, Math.ceil(GET_MIN_IMAGE / size));
   const image = renderRegion(pixels, { x0, y0, width: size, height: size, scale });
   const png = encodePng(image.width, image.height, image.rgba, { text: { Title: `canvas ${x0},${y0} ${size}x${size}` } });
 
   const link = config.appUrl ? `\nOpen the canvas: ${config.appUrl}` : "";
+  const partial = truncated ? "\n⚠️ This area is too busy to read in full: some pixels are missing, use a smaller size." : "";
   return {
-    content: `🖼️ Canvas from (${x0}, ${y0}) to (${x0 + size - 1}, ${y0 + size - 1}), ${pixels.length} painted pixel(s).${link}`,
+    content: `🖼️ Canvas from (${x0}, ${y0}) to (${x0 + size - 1}, ${y0 + size - 1}), ${pixels.length} painted pixel(s).${partial}${link}`,
     files: [{ name: "canvas.png", contentType: "image/png", data: png, description: `Canvas ${x0},${y0} ${size}x${size}` }],
   };
 }
