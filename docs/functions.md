@@ -85,6 +85,7 @@ absorbs the burst (visible on the dashboard, `docs/observability.md`).
 | `grid.js` | Tiles (`tileOf`, `tilesOfRect`, 256x256), `pixelId`, `inGrid`, collection names. |
 | `canvas.js` | `readSession` (`paused`, `clearedAt`), `readRegion` (pixels of a square, newer than the last clear, on the `(tile, t)` index, at most 100 000 documents read, `truncated` past that), `renderRegion` (RGBA, scaled). |
 | `png.js` | `encodePng(width, height, rgba)`: PNG encoder on `node:zlib`, no image dependency. |
+| `pngDecode.js` | `decodePng(png)`, `readPngText(png)`: the matching decoder (8-bit RGB/RGBA), used to read the tile rasters. |
 | `storage.js` | `getStorage()`: lazy Cloud Storage client. |
 | `discordWebhook.js` | `createInteractionClient()`: `editOriginal` / `followUp` of an interaction (JSON or multipart with files), errors flagged `retryable`. |
 | `snowflake.js` | `snowflakeTime(id)`: creation time of a Discord id. |
@@ -192,4 +193,54 @@ Tests: `test/snapshot` (composition 1:1 and downscaled, object name, metadata, c
 link, ignored events, DLQ, retries, a real V4 URL signed with a throwaway key: `X-Goog-Expires` equals the
 lifetime) and `test/emulator/snapshotStore.test.js`. Live: `scripts/test-snapshot-url.sh '<link>' [--wait]`
 (200 signed, 403 unsigned, refused after expiry).
+
+## Tile rasters and `/get` (`src/tiles`, #68)
+
+```
+draw worker --pixel.processed--> tile-renderer --PNG 256x256 + version--> bucket <project>-tiles (private)
+browser --HTTPS--> LB + Cloud CDN --/tiles/{tx}/{ty}.png--> backend bucket --> bucket (object tiles/{tx}/{ty}.png)
+/get --> command worker --readRegion--> rasters (+ pixels newer than each raster)
+```
+
+- **Current tile** (`current.js`), the one recipe used everywhere (and by the front, contract §3): the stored raster, plus
+  the pixels with `t >` its version (one query on the `(tile, t)` index), applied on top. A raster at least as old as the
+  last `/admin clear` is not used (start again from an empty tile, `t > clearedAt`).
+- **Tile renderer** (`renderer.js`, `state.js`): consumes `pixel.processed`, finds the touched tiles, and for each one claims
+  a lease (`tileState/{tx}_{ty}`), renders, stores the PNG, and renders again at most once per `RENDER_MIN_INTERVAL_MS`
+  while more messages arrived: see `docs/data-model.md` §4 for the reasoning. Writes are conditional on the object
+  generation (`bucket.js`), so two renderers never overwrite each other. A message that cannot finish within
+  `RENDER_BUDGET_MS`, or a tile that fails, answers `500`: Pub/Sub retries, the rendering is idempotent. The leader of a tile is
+  named after the Pub/Sub `messageId`, which a redelivery keeps: if an instance is killed without giving the tile back, the
+  redelivery of its message takes the tile at once instead of waiting for the lease to expire. A render only writes when the
+  image changed (compared on the pixels, not on the number read: `t > version` returns the newest pixel at every read).
+  The sweep after `/admin clear` (`deleteStale`) deletes while it lists and stops at the same budget (`500`, the retry continues).
+- **Version** (`raster.js`): `floor(ms)` of the newest pixel `t` in the raster, stored as the `Tile-Version` `tEXt` chunk of the
+  PNG (the image and its version are one object) and as object metadata `tile-version` (listable without downloading).
+  Rounding down only ever repeats a pixel on the front, rounding up would lose some.
+- **Delivery** (no function, `infra/serverless/tiles.tf`): the front's load balancer reads the private bucket through a backend bucket
+  with Cloud CDN, like the app files. Objects are named `tiles/{tx}/{ty}.png`, the request path; the renderer sets
+  `Cache-Control: public, max-age=60` (`TILE_MAX_AGE_SECONDS`) on each one, and the CDN follows it. A tile never painted or erased
+  has no object: `404`, an empty tile for the front. The front reads the version inside the PNG and ignores a raster not newer
+  than the last clear (a CDN copy can outlive the clear by its max-age).
+- **Clear during a render** (`renderer.js`): the session is read again after the pixels; if `clearedAt` moved in between, the render
+  starts over, otherwise erased pixels could be stored with a version newer than the clear (found by the security review of #143).
+- **`/get`** (`region.js`): `createRasterRegionReader` has the contract of `readRegion` of `canvas.js` (`{ x0, y0, size, clearedAt }`
+  to `[{ x, y, c }]`) but reads one raster plus the new pixels per tile: at most 9 tiles for 512 x 512 not aligned on the
+  grid, instead of up to ~590 000 pixel documents. `index.js` plugs it into the command store when `TILES_BUCKET` is set
+  (`{ ...store, readRegion }`); without it `/get` falls back to reading Firestore. **The area** is the one of the command
+  worker (`docs/discord-bot.md`): a square `size x size` (16 to 512, default 128) centred on `(x, y)`, default the centre of the
+  grid where the web app opens, scaled to at least 512 px, unpainted pixels white. A whole-grid view would be an overview
+  (contract, question D, not delivered): `/snapshot` shows the painted area.
+- **Identities**: `fn-tile-renderer`: `datastore.user` (project, no per-collection IAM in Firestore) and `storage.objectUser` on the
+  tiles bucket; the command worker gets `storage.objectViewer` on the tiles bucket; the load balancer's service agent gets
+  `storage.objectViewer` on the tiles bucket (delivery). No function is reachable from the internet for the tiles, see
+  `infra/serverless/README.md`, "Tile rasters".
+- **PNG without a dependency**: `lib/pngDecode.js` is the counterpart of `lib/png.js` (8-bit RGB/RGBA, no interlace, the five
+  filters, CRC checked, output size bounded), about 130 lines on `node:zlib`. It only reads rasters this platform wrote, so a library
+  (`pngjs`: pure JavaScript, but one more dependency to audit, for a format the encoder already fixes) was not worth it.
+
+Tests: `test/tiles` (tile and offset arithmetic, decoder and filters, version = floor of the newest `t`, raster + delta,
+clear, bucket preconditions, coalescing of a burst of 60 messages into a few renders without losing a pixel, leader
+loop and lease takeover, clear during a render, Cache-Control of the objects, `/get` from rasters over 9 tiles) and `test/emulator/tiles.test.js`
+(the delta query and the lease transactions against the Firestore emulator).
 

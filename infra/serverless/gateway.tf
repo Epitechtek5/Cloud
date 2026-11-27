@@ -22,7 +22,7 @@ variable "gateway_region" {
 variable "gateway_tiles_route" {
   type        = bool
   default     = false
-  description = "Expose GET /tiles/{tx}/{file} on the gateway. Open question A: option 1 only (tile-reader behind the gateway); option 2 (recommended) serves the tiles from the front's CDN instead. Needs the tile-reader function (#68)"
+  description = "Expose GET /tiles/{tx}/{file} on the gateway. Open question A, option 1 (tiles behind the gateway), which was not chosen: the tiles are served by the front's load balancer and CDN from the private bucket (backend bucket, tiles.tf). Leave false"
 }
 
 locals {
@@ -56,7 +56,7 @@ locals {
     auth_discord         = local.function_url[local.auth_discord_enabled ? "auth-discord" : "gateway-stub"]
     pixels_draw          = local.function_url["draw-proxy"]   # POST /pixels (pixels_api.tf)
     pixel_get            = local.function_url["pixel-reader"] # GET /pixels/{x}/{y} (pixels_api.tf)
-    tiles                = local.function_url["gateway-stub"] # tile-reader (#68), option 1 of question A
+    tiles                = local.function_url["gateway-stub"] # option 1 of question A, not chosen: the tiles come from the front's CDN (tiles.tf)
   }
 
   gateway_openapi = templatefile("${path.module}/openapi/api.yaml.tftpl", {

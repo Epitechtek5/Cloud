@@ -20,6 +20,13 @@ import { loadNotifierConfig, loadSnapshotWorkerConfig } from "./snapshot/config.
 import { createSnapshotNotifier, createStorageSigner } from "./snapshot/notifier.js";
 import { createSnapshotBucket, readVisiblePixels } from "./snapshot/store.js";
 import { createSnapshotWorker } from "./snapshot/worker.js";
+import { createTileBucket } from "./tiles/bucket.js";
+import { loadRendererConfig } from "./tiles/config.js";
+import { readTilePixels } from "./tiles/current.js";
+import { createRasterRegionReader } from "./tiles/region.js";
+import { createTileRenderer } from "./tiles/renderer.js";
+import { createTileState } from "./tiles/state.js";
+import { readSession } from "./lib/canvas.js";
 
 import { authDiscord as authDiscordHandler } from "./auth-discord/handler.js";
 
@@ -70,7 +77,15 @@ export const discordProxy = tracedHttp(
 let commandHandler;
 export function commandWorker(req, res) {
   commandHandler ??= createCommandWorker({
-    getStore: async () => createCommandStore(await getFirestore()),
+    getStore: async () => {
+      const db = await getFirestore();
+      const store = createCommandStore(db);
+      // /get reads the tile rasters (#68) instead of every pixel document; without
+      // TILES_BUCKET it keeps reading Firestore.
+      if (!process.env.TILES_BUCKET) return store;
+      const bucket = createTileBucket((await getStorage()).bucket(process.env.TILES_BUCKET));
+      return { ...store, readRegion: createRasterRegionReader({ bucket, readPixels: (query) => readTilePixels(db, query) }) };
+    },
     publisher: createPublisher({ source: COMMAND_WORKER }),
     discord: createInteractionClient(),
     config: loadCommandConfig(),
@@ -135,4 +150,26 @@ export async function snapshotNotifier(req, res) {
     });
   }
   return snapshotNotifierHandler(req, res);
+}
+
+// Tile renderer (#68), pushed by pixel.processed.sub: keeps the raster of every
+// touched tile up to date in the private tiles bucket, coalescing a burst.
+let tileRendererHandler;
+export function tileRenderer(req, res) {
+  if (!tileRendererHandler) {
+    const config = loadRendererConfig();
+    tileRendererHandler = createTileRenderer({
+      config,
+      getDeps: async () => {
+        const db = await getFirestore();
+        return {
+          state: createTileState(db, { leaseMs: config.leaseMs }),
+          bucket: createTileBucket((await getStorage()).bucket(config.bucket), { cacheMaxAgeSeconds: config.cacheMaxAgeSeconds }),
+          readSession: () => readSession(db),
+          readPixels: (query) => readTilePixels(db, query),
+        };
+      },
+    });
+  }
+  return tileRendererHandler(req, res);
 }

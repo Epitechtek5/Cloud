@@ -17,6 +17,7 @@ lire ou d'écrire quoi.
 | Pixels refusés | Firestore `userEvents/{uid}_{batchId}` (TTL) | worker de dessin (IAM) | son propriétaire seulement |
 | Lots déjà traités | Firestore `processedBatches/{uid}_{batchId}` (TTL) | worker de dessin (IAM) | workers uniquement |
 | Commandes Discord déjà traitées | Firestore `processedCommands/{interactionId}` (TTL) | worker de commandes (IAM) | workers uniquement |
+| Bail et compteur de rendu d'une tuile | Firestore `tileState/{tx}_{ty}` (`seq`, `owner`, `leaseUntil`) | `tile-renderer` (IAM) | `tile-renderer` uniquement (règles : refusé) |
 | Raster de chaque tuile | bucket privé `<projet>-tiles`, `{tx}/{ty}.png` | worker de rendu (IAM) | fonction de lecture des tuiles (IAM) |
 | Images `/snapshot` | bucket privé `<projet>-snapshots` | snapshot-worker (IAM) | notifier, qui signe une URL courte |
 
@@ -53,7 +54,7 @@ Alternative : 512x512 (4 fois moins de listeners, rasters plus lourds). À valid
 
 Pour chaque tuile visible, le front :
 
-1. télécharge le raster et lit sa version `v` (`X-Tile-Version`, le `t` du pixel le plus récent qu'il contient) ;
+1. télécharge le raster et lit sa version `v` (chunk `Tile-Version` du PNG, le `t` du pixel le plus récent qu'il contient) ;
 2. ouvre un listener Firestore `pixels where tile == "tx_ty" and t > v orderBy t limit 65536`.
 
 Le premier résultat ne contient que les pixels plus récents que le raster, puis chaque écriture arrive en **delta** (temps
@@ -87,7 +88,7 @@ session/state = { paused, clearedAt: <timestamp serveur>, epoch: n + 1, updatedA
 - Le worker publie un seul `pixel.processed { cleared: true, pixels: [] }` (même `batchId` `clear-<interaction>` à
   chaque livraison) pour le rendu des tuiles et le temps réel.
 - Le navigateur écoute déjà `session/state` : quand `clearedAt` change, il oublie ses deltas et recharge les rasters
-  (régénérés vides par le worker de rendu).
+  (un raster rendu avant l'effacement n'est plus servi, voir §4 « Après un effacement »).
 - Les anciens documents restent jusqu'à ce que le pixel soit repeint (le `set` du worker de dessin les écrase). Une
   purge en arrière-plan (lots de suppressions des documents `t <= clearedAt`) est possible plus tard ; elle n'est pas
   nécessaire à la justesse, seulement au coût de stockage.
@@ -102,16 +103,34 @@ stocké dans le bucket `tiles`. Le raster porte sa version ; les deltas comblent
 
 **Par événement, avec coalescence par tuile** plutôt qu'à intervalle fixe :
 
-- le worker de dessin publie `tile.dirty` (Pub/Sub) pour chaque tuile touchée, seulement si elle n'était pas déjà marquée
-  « à refaire » (transaction sur un petit document d'état de la tuile) ;
-- le worker de rendu relit les pixels de la tuile, écrit le PNG avec sa version, puis enlève la marque, ou republie si
-  d'autres pixels sont arrivés pendant le rendu.
+- **Réalisé dans #68, sans topic de plus** : le `tile-renderer` est abonné à `pixel.processed` (le worker de dessin ne publie
+  pas de `tile.dirty`). Chaque message ajoute 1 au compteur `seq` du document `tileState/{tx}_{ty}` (transaction) ; le message qui
+  trouve la tuile libre en devient le **leader** (bail de 25 s, renouvelé), les autres n'ont rien d'autre à faire et sont acquittés.
+  Le leader porte le `messageId` Pub/Sub du message (identique à chaque nouvelle livraison) : si son instance est tuée sans libérer la tuile,
+  la nouvelle livraison de ce même message reprend la tuile tout de suite au lieu d'attendre l'expiration du bail.
+- Le leader rend la tuile tout de suite (le pixel apparaît en 1 à 3 s), puis relit `seq` : s'il a bougé, d'autres messages sont
+  arrivés pendant le rendu et il recommence, **au plus une fois par 1,5 s** (`RENDER_MIN_INTERVAL_MS`), jusqu'à ce que `seq` ne
+  bouge plus. C'est un debounce « premier appel immédiat, dernier appel garanti » : une rafale de 100 messages donne quelques
+  rendus, pas 100. Au bout de 20 s (`RENDER_BUDGET_MS`) le leader rend la main et le message est rejoué (retry Pub/Sub) : rien n'est perdu.
+- **Un rendu coûte ce qui a changé**, pas 65 536 lectures : il relit l'ancien raster et seulement les pixels `t > version`
+  (index `(tile, t)`), les applique, puis réécrit le PNG (écriture conditionnelle sur la génération de l'objet, donc deux rendeurs
+  ne s'écrasent pas). Une tuile sans raster est reconstruite en une fois.
+- **Version** : le plancher en millisecondes du `t` le plus récent inclus, écrit dans le PNG (`tEXt` `Tile-Version`) et en métadonnée
+  d'objet. Le `t` vient des documents Firestore relus (le message `pixel.processed` n'en porte pas). Cohérence : `t` est l'horodatage
+  de commit, et une lecture voit tout ce qui a été commité avant elle ; le worker de dessin publie après son commit, donc le rendu
+  déclenché par un message contient toujours ses pixels.
+- **Après un effacement** : `pixel.processed { cleared: true }` fait supprimer les rasters dont la version est `<= clearedAt`
+  (les seuls périmés, un raster rendu après l'effacement a une version plus récente) ; un rendu qui trouve un raster périmé
+  repart d'une tuile vide avec `t > clearedAt`. Un rendu relit `session/state` après les pixels et recommence si `clearedAt` a
+  bougé entre les deux, sinon il pourrait écrire des pixels effacés avec une version postérieure au clear. Le front ignore en plus
+  un raster `<= clearedAt` (copie CDN ou balayage en retard) : l'ancienne grille ne revient jamais. Aucune des ~153 000 tuiles
+  n'est re-rendue.
 
 Une tuile très active n'a ainsi qu'un rendu en cours à la fois, et une tuile calme n'est jamais refaite pour rien. Le
 navigateur n'en dépend pas pour être à jour (il a les deltas) : la fraîcheur des rasters ne joue que sur le coût du
-premier chargement. Un délai minimal entre deux rendus (vrai debounce) demanderait un envoi différé (Cloud Tasks) ;
-alternative plus simple : Cloud Scheduler toutes les minutes qui publie `tiles.render` pour les tuiles marquées. À
-valider avec Quentin, qui écrit ces workers.
+premier chargement. Alternatives écartées pour le debounce : Cloud Tasks (un envoi différé nommé par tuile, mais une API et un
+service de plus, hors du « asynchrone par Pub/Sub » du sujet) et Cloud Scheduler toutes les minutes (rasters en retard d'une minute,
+critère « quelques secondes » non tenu).
 
 `/snapshot` est un autre usage : une image horodatée de toute la grille, écrite dans le bucket `snapshots`. L'événement
 « objet créé » du bucket est `snapshot.ready`, et le notifier renvoie une URL signée courte dans Discord (C07 §2).

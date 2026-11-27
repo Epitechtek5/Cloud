@@ -8,7 +8,8 @@
 # Firestore and the buckets"), never a project-wide storage role.
 #
 # No CORS on purpose: the browser never calls these buckets. Tiles reach it
-# through a function (question A of docs/frontend-contract.md) and snapshots
+# through the front's load balancer on the same origin (question A of
+# docs/frontend-contract.md, backend bucket in tiles.tf) and snapshots
 # through a signed URL opened as a link from Discord, not fetched by a script.
 
 locals {
@@ -17,10 +18,10 @@ locals {
   snapshots_retention_days = var.env == "prd" ? 90 : 7
 }
 
-# Rasters of the tiles ({tx}/{ty}.png) and the overview, rebuilt by a worker
-# from Firestore. Derived data: losing them costs a regeneration, not the canvas.
+# Rasters of the tiles (tiles/{tx}/{ty}.png), rebuilt by the tile renderer from
+# Firestore and read by the front's load balancer (backend bucket, tiles.tf). Derived data: losing them costs a regeneration, not the canvas.
 resource "google_storage_bucket" "tiles" {
-  #checkov:skip=CKV_GCP_62:Access logs would need a second bucket; only functions read it, and Cloud Audit Logs (Data Access) is the place to turn on if per-object access logs are needed
+  #checkov:skip=CKV_GCP_62:Access logs would need a second bucket; only the tile functions and the load balancer read it (the CDN logs its requests), and Cloud Audit Logs (Data Access) is the place to turn on if per-object access logs are needed
   #checkov:skip=CKV_GCP_78:No versioning on purpose: every regeneration overwrites the rasters, which are rebuilt from Firestore, so old versions would only be billed
   name     = "${var.project_id}-tiles"
   project  = var.project_id

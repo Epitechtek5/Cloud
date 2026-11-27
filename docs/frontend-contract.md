@@ -61,10 +61,26 @@ Voir [discord-activity.md](discord-activity.md). **Ajout proposé** à la répon
 Pour ne pas relire des milliers de documents, chaque tuile a un **raster** régénéré par un worker (snapshot périodique, cf. C06 §4.3) :
 
 - `GET /tiles/{tx}/{ty}.png` : PNG 256x256, **alpha 0** pour les pixels jamais peints. `404` si la tuile est vide.
-- En-tête `X-Tile-Version: <epoch ms>` = `t` du pixel le plus récent inclus dans le raster (`0` si 404). Il doit être exposé en CORS
-  (`Access-Control-Expose-Headers`) si l'origine diffère de celle de l'app.
-- `Cache-Control: public, max-age=60` : la fraîcheur vient des deltas (section 3), pas du cache.
-- Le bucket qui contient les rasters reste **privé** (exigence du sujet) ; voir la question ouverte A.
+- **Version** = `t` du pixel le plus récent inclus dans le raster (epoch ms), lue **dans le PNG** : chunk `tEXt` de clé
+  `Tile-Version` (`0` sur un 404). Aucun en-tête n'est nécessaire, donc aucune fonction devant le bucket.
+- `Cache-Control: public, max-age=60`, posé sur chaque objet par le renderer : la fraîcheur vient des deltas (section 3), pas du cache.
+- Le bucket qui contient les rasters reste **privé** (exigence du sujet) : le load balancer du front le lit par un **backend bucket**,
+  comme les fichiers de l'app (même origine, donc pas de CORS ; question A, tranchée en section 6).
+
+Ce que fait le backend (#68, `app/functions/src/tiles`, [functions.md](functions.md)) :
+
+- **Version = plancher.** La version est le `t` du pixel le plus récent du raster, **arrondi à la milliseconde inférieure**.
+  Le front redemande `t > version` : un pixel de la même milliseconde revient en double (la même couleur est réappliquée,
+  sans effet). Arrondir vers le haut perdrait les pixels de la fin de la milliseconde. La version est écrite dans le PNG
+  lui-même (chunk `tEXt` `Tile-Version`), donc elle correspond toujours aux octets servis, même pendant un nouveau rendu.
+- **Après `/admin clear`**, le renderer supprime les rasters rendus avant l'effacement (`version <= session/state.clearedAt`) et
+  repart d'une tuile vide. Le CDN peut encore servir une copie pendant son `max-age` : c'est le **front** qui l'ignore
+  (`version <= clearedAt`) et qui s'abonne depuis `since = max(version, clearedAt)`, sinon il relirait les pixels d'avant
+  l'effacement, toujours stockés (section 3, `session/state`).
+- **Fraîcheur.** Un pixel dessiné apparaît dans son raster en 1 à 3 s ; une rafale de pinceau est regroupée (au plus un rendu par
+  tuile et par 1,5 s). Le `404` d'un objet absent ne porte pas le `Cache-Control` public des rasters : le CDN ne devrait pas le
+  garder (à vérifier au déploiement, `curl -I` deux fois de suite) ; au pire une tuile neuve reste vide côté raster quelques
+  secondes, et ses pixels arrivent de toute façon par les deltas.
 
 ## 3. Temps réel : Firestore en lecture seule (`RealtimeChannel`)
 
@@ -83,7 +99,7 @@ complet (découpage, deltas, rasters, cache) est dans [data-model.md](data-model
 
 Pour chaque tuile visible, le front :
 
-1. télécharge le raster et lit `X-Tile-Version` = `v` ;
+1. télécharge le raster et lit sa version `v` (chunk `Tile-Version` du PNG) ;
 2. ouvre `pixels.where("tile","==","tx_ty").where("t",">", v).orderBy("t").limit(65536)`.
 
 La **limite est obligatoire** : les règles refusent toute requête sur `pixels` sans `limit` ou avec plus de 65 536 (la taille
@@ -94,7 +110,7 @@ polling, aucun pixel perdu entre le raster et l'abonnement**. L'effacement (`/ad
 (10^10 pixels), mais un signal (`pixel.processed` avec `cleared: true`) ; le front oublie ses deltas et recharge les rasters.
 
 > Conséquence : le front s'abonne **après** avoir chargé le raster. C'est fait dans le front et le mock :
-> `TileSource.loadTile` renvoie `{ rgba, version }` (`version` = `X-Tile-Version`, `0` pour une tuile vide) et
+> `TileSource.loadTile` renvoie `{ rgba, version }` (`version` lue dans le PNG, `0` pour une tuile vide) et
 > `RealtimeChannel.subscribeTile(tx, ty, cb, { since: version })` ne livre que les pixels `t > since`, puis les changements en direct.
 > L'adaptateur GCP devra respecter cette sémantique (`where("t", ">", since)`).
 
@@ -143,12 +159,21 @@ temps réel au pixel près (agrégat) ; à valider que c'est acceptable pour le 
 
 ## 6. Questions ouvertes (à trancher avec l'équipe `serverless`)
 
-- **A. Distribuer les rasters avec un bucket privé et un cache efficace.** Options : (1) une fonction « tile-reader » derrière la gateway
+- **A. Distribuer les rasters avec un bucket privé et un cache efficace.** Options étudiées : (1) une fonction « tile-reader » derrière la gateway
   qui lit GCS (simple, mais la gateway GCP ne met pas en cache) ; (2) la même fonction derrière le CDN/hébergement du front avec
   `Cache-Control` (même origine donc pas de CORS, et les mappings Discord restent simples) ; (3) URLs signées courtes
-  (`GET /tiles/{tx}/{ty}/url`, un aller-retour de plus). Recommandation : **(2)**.
-  Préparé par #70 sans être figé : le load balancer du front a un emplacement pour une route `/tiles/*`
-  (`local.frontend_tiles_backend` dans `infra/serverless/frontend.tf`) ; le choix final et la fonction relèvent de #68.
+  (`GET /tiles/{tx}/{ty}/url`, un aller-retour de plus). Recommandation initiale : (2), remplacée par un backend bucket (ci-dessous).
+  **DÉCISION (#68, revue de sécurité) : ni gateway ni fonction, un backend bucket.** La route `/tiles/*` du load balancer du
+  front (`local.frontend_tiles_backend`, `infra/serverless/frontend.tf`) pointe vers un backend bucket avec Cloud CDN
+  (`USE_ORIGIN_HEADERS`) sur le bucket privé `tiles` (`infra/serverless/tiles.tf`), lu par l'agent de service du load balancer
+  (`objectViewer` sur ce bucket seulement), exactement comme les fichiers de l'app. Raisons : aucune fonction n'est joignable depuis
+  internet (pas de `allUsers`, rien à saturer), le CDN absorbe le trafic (100 à 150 tuiles par page), même origine (pas de CORS,
+  mappings Discord simples), et le sujet autorise le load balancer pour les fichiers statiques, ce que sont les rasters. Ce qu'une
+  fonction aurait apporté est repris autrement : la version est dans le PNG (`tEXt`), le `404` est natif pour un objet absent, le
+  `Cache-Control` est une métadonnée d'objet, et le front ignore un raster antérieur au dernier clear. Alternatives écartées :
+  (1) la gateway (pas de cache, JWT exigé, un appel de fonction par tuile) ; (2) une fonction `tile-reader` derrière le CDN
+  (essayée dans #68 : `allUsers` en `run.invoker` protégé par l'ingress seulement, accès Firestore exposé) ; (3) URLs signées (un
+  aller-retour de plus par tuile). `gateway_tiles_route` reste `false`.
 - **B. Hébergement du front.** `deploy-env.yml` passe `dist/` à Terraform (`app_artifact_dir`) et attend un output `app_url`.
   Qui génère `/config.json` (`env`, `apiBase`, `discordClientId` de l'environnement, config Firebase) à côté de `dist/` ?
   **Proposé par #70 (provisoire, à valider)** : la stack `infra/serverless` (Terraform) écrit `config.json` à partir des
@@ -157,6 +182,11 @@ temps réel au pixel près (agrégat) ; à valider que c'est acceptable pour le 
   `<ip>.sslip.io` (voir `infra/serverless/README.md`, « Frontend hosting »). `apiBase` reste vide jusqu'à la gateway (#60).
 - **C. Granularité des tuiles Firestore et fréquence de régénération des rasters.** **DÉCISION PROVISOIRE (#59)**, à valider avec
   Quentin : tuiles de **256x256** ; rasters régénérés **par événement, avec coalescence par tuile** (un seul rendu en cours par tuile,
-  aucun rendu pour une tuile calme). Détail et alternatives (512x512, Cloud Scheduler périodique) : [data-model.md](data-model.md) §2 et §4.
-- **D. Mini-map** : acceptable qu'elle soit approximative ?
+  aucun rendu pour une tuile calme). **Réalisé dans #68** (un leader par tuile, au plus un rendu par tuile toutes les 1,5 s, rendu
+  incrémental : ancien raster + pixels plus récents). Détail et alternatives (512x512, Cloud Scheduler périodique) : [data-model.md](data-model.md) §2 et §4.
+- **D. Mini-map** : acceptable qu'elle soit approximative ? **Non livrée dans #68** (optionnelle). Piste simple si l'équipe la veut :
+  1 pixel d'aperçu = 128x128 de la grille (782x782 pour toute la grille, soit exactement 2x2 pixels par tuile), la couleur du
+  dernier pixel peint du bloc ; chaque rendu de tuile met à jour son bloc de 2x2 dans l'objet `overview.png` (écriture conditionnelle sur la
+  génération, avec reprise en cas de conflit). Elle n'est pas faite car 391 x 391 tuiles écrivent le même objet : il faudrait
+  regrouper les rendus (Cloud Scheduler) plutôt que d'écrire à chaque tuile.
 - **E. Firestore dans l'iframe Discord** : à valider dans une vraie Activity (voir `discord-activity.md` §4).

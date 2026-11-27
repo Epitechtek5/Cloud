@@ -52,7 +52,7 @@ interaction token authenticates that call: the worker needs no bot token and no 
 | Command | Effect | Answer |
 | --- | --- | --- |
 | `/draw x y color` | publishes `pixel.draw` (`batchId = discord-<interaction id>`, `source: discord`), the same pipeline as the web | by the **draw worker** (accepted, paused, rate limited) |
-| `/get [x] [y] [size]` | reads the square `size x size` (default 128, max 512) centred on `(x, y)` (default: the centre of the grid, where the web app opens) from Firestore, renders a PNG | the image as an attachment, plus a link to the web app |
+| `/get [x] [y] [size]` | reads the square `size x size` (default 128, max 512) centred on `(x, y)` (default: the centre of the grid, where the web app opens) from the tile rasters (plus the pixels newer than each raster, `docs/functions.md` "Tile rasters"), renders a PNG | the image as an attachment, plus a link to the web app |
 | `/snapshot` | publishes `snapshot.requested` (`requestId` = interaction id) | "requested", then the notifier edits it with the signed link (`docs/functions.md`, "Snapshot workflow") |
 | `/admin pause` / `resume` | `session/state.paused` | ephemeral confirmation |
 | `/admin clear` | moves the grid generation forward (`session/state.clearedAt`, `epoch`), publishes one `pixel.processed {cleared: true}` (strategy in `docs/data-model.md` §3) | ephemeral confirmation |

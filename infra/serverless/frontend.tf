@@ -60,10 +60,10 @@ locals {
     }
   }
 
-  # #68 (open question A, option 2): set this to the backend service of the
-  # tile-reader (serverless NEG, function ingress internal-and-cloud-load-balancing)
-  # to serve /tiles/* from the same origin and CDN. Null: no route.
-  frontend_tiles_backend = null
+  # #68 (open question A): the backend bucket of the private tiles bucket
+  # (tiles.tf) serves /tiles/* from the same origin and CDN as the app. Null
+  # would remove the route.
+  frontend_tiles_backend = google_compute_backend_bucket.tiles.id
 }
 
 # Warnings, not errors: PR plans and destroy are expected to take these paths.
