@@ -33,17 +33,30 @@ locals {
   # Every function lists google_service_account.gateway in its depends_on.
   gateway_invokers = ["serviceAccount:api-gateway@${var.project_id}.iam.gserviceaccount.com"]
 
+  # Deterministic URL of a function (https://<name>-<project number>.<region>.run.app,
+  # one of the URLs of its Cloud Run service), built from the function name
+  # instead of read from module.<function>.uri. On purpose: the api config is
+  # create_before_destroy, and Terraform forces that on everything it depends
+  # on. Reading the uri would make every function create_before_destroy, and
+  # replacing one (a failed build leaves it tainted) would then fail with 409
+  # "already exists", since the new function has the same name as the old one.
+  # Keep these names in sync with the `name` of the modules.
+  function_url = { for name in ["health", "gateway-stub", "discord-proxy", "auth-discord", "draw-proxy", "pixel-reader"] :
+    name => "https://${name}-${data.google_project.this.number}.${var.region}.run.app"
+  }
+
   # Route => function. A route whose function is not delivered (or not
   # deployed in this environment yet) points to the gateway-stub function,
   # which answers 501: the route, its JWT check and its IAM are live and
-  # tested. When a function lands, replace its line here.
+  # tested. When a function lands, add its name to function_url and replace
+  # its line here (never module.<function>.uri, see above).
   gateway_backends = {
-    health               = module.health.uri
-    discord_interactions = coalesce(one(module.discord_proxy[*].uri), module.gateway_stub.uri)
-    auth_discord         = coalesce(one(module.auth_discord[*].uri), module.gateway_stub.uri)
-    pixels_draw          = module.gateway_stub.uri # POST /pixels (proxy of #66)
-    pixel_get            = module.gateway_stub.uri # GET /pixels/{x}/{y} (proxy of #66)
-    tiles                = module.gateway_stub.uri # tile-reader (#68), option 1 of question A
+    health               = local.function_url["health"]
+    discord_interactions = local.function_url[var.discord_proxy_enabled ? "discord-proxy" : "gateway-stub"]
+    auth_discord         = local.function_url[local.auth_discord_enabled ? "auth-discord" : "gateway-stub"]
+    pixels_draw          = local.function_url["draw-proxy"]   # POST /pixels (pixels_api.tf)
+    pixel_get            = local.function_url["pixel-reader"] # GET /pixels/{x}/{y} (pixels_api.tf)
+    tiles                = local.function_url["gateway-stub"] # tile-reader (#68), option 1 of question A
   }
 
   gateway_openapi = templatefile("${path.module}/openapi/api.yaml.tftpl", {
@@ -57,6 +70,10 @@ locals {
   })
 
   gateway_url = "https://${google_api_gateway_gateway.this.default_hostname}"
+}
+
+data "google_project" "this" {
+  project_id = var.project_id
 }
 
 # Identity of the gateway: it calls the functions as this account. It has no
@@ -90,9 +107,7 @@ module "gateway_stub" {
 
   depends_on = [
     google_service_account.gateway,
-    google_project_iam_member.functions_build_logs,
-    google_project_iam_member.functions_build_sources,
-    google_artifact_registry_repository_iam_member.functions_build,
+    time_sleep.functions_build_iam,
   ]
 }
 

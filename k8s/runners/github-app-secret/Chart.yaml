@@ -1,0 +1,8 @@
+# Local chart installed by Terraform (infra/foundation/runners_secrets.tf).
+# Bump `version` with any change to the templates: the Helm provider only
+# upgrades a local chart when its version or its values change.
+apiVersion: v2
+name: arc-github-app-secret
+description: SecretStore and ExternalSecret that write the ARC GitHub App secret from Secret Manager (issue #54)
+type: application
+version: 0.1.0
