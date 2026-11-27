@@ -22,3 +22,9 @@ firebase_api_key                   = "AIzaSyD14dgecoCySkrf8CdW0mqLB6LdTw51Lnc"
 
 # discord-proxy (#62), off until discord-public-key has a version (same reason).
 # discord_proxy_enabled = true
+
+# Command worker (#64): who may run /admin and /snapshot. Empty: nobody (the
+# worker fails closed). Role id of the canvas admin role in the dev guild
+# (Server Settings > Roles > Copy Role ID) and/or user ids.
+# discord_admin_role_ids = ["<role id>"]
+# discord_admin_user_ids = ["<user id>"]

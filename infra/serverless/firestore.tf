@@ -118,8 +118,9 @@ resource "google_firestore_field" "pixels_t" {
 # only grows too.
 resource "google_firestore_field" "ttl" {
   for_each = toset([
-    "userEvents",       # rejected pixels shown to their author, ~1 h
-    "processedBatches", # idempotency keys, longer than the Pub/Sub retention (7 days)
+    "userEvents",        # rejected pixels shown to their author, ~1 h
+    "processedBatches",  # idempotency keys, longer than the Pub/Sub retention (7 days)
+    "processedCommands", # same, for the Discord commands (command worker)
   ])
 
   project    = var.project_id

@@ -5,6 +5,7 @@
 // with PERMISSION_DENIED, by design.
 import { CORRELATION_ATTRIBUTE, newCorrelationId } from "./correlation.js";
 import { assertEvent } from "./events.js";
+import { injectContext, SpanKind, withSpan } from "./trace.js";
 
 async function defaultClient() {
   const { PubSub } = await import("@google-cloud/pubsub");
@@ -38,12 +39,21 @@ export function createPublisher({ source, client, topics = {} }) {
      */
     async publish(eventType, payload, { correlationId = newCorrelationId(), attributes = {} } = {}) {
       assertEvent(eventType, payload);
-      const handle = await topic(topics[eventType] ?? eventType);
-      const messageId = await handle.publishMessage({
-        json: payload,
-        attributes: { ...attributes, [CORRELATION_ATTRIBUTE]: correlationId, event_type: eventType, source },
-      });
-      return { messageId, correlationId };
+      const name = topics[eventType] ?? eventType;
+      const handle = await topic(name);
+      return withSpan(
+        `${name} publish`,
+        { kind: SpanKind.PRODUCER, attributes: { "messaging.system": "gcp_pubsub", "messaging.destination.name": name, correlation_id: correlationId } },
+        async (span) => {
+          // traceparent (W3C) of this span: the worker continues the same trace.
+          const messageId = await handle.publishMessage({
+            json: payload,
+            attributes: { ...injectContext({}), ...attributes, [CORRELATION_ATTRIBUTE]: correlationId, event_type: eventType, source },
+          });
+          span.setAttribute("messaging.message.id", messageId);
+          return { messageId, correlationId };
+        },
+      );
     },
   };
 }

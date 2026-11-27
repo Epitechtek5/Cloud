@@ -152,6 +152,11 @@ jobs:
             "$RUNNER_TEMP/in/architecture-input.json" docs/architecture/architecture.json docs/architecture/architecture.d2
           d2 docs/architecture/architecture.d2 docs/architecture/architecture.svg
 
+      # The reference diagram is written by hand (docs/architecture.md): only
+      # its SVG is rebuilt here, so it cannot drift from its source.
+      - name: Render the reference diagram
+        run: d2 docs/architecture/pixel-canvas.d2 docs/architecture/pixel-canvas.svg
+
       - name: Open a pull request
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}

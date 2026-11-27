@@ -73,9 +73,9 @@ test("x and y match the grid, color is a short string", () => {
   assert.equal(parseColor("purple"), 0x820080);
 });
 
-test("admin commands need Administrator as a first barrier", () => {
+test("admin commands need Administrator as a first barrier, the others are open to everyone", () => {
   assert.equal(byName.admin.default_member_permissions, "8");
-  assert.equal(byName.snapshot.default_member_permissions, "8");
+  assert.equal(byName.snapshot.default_member_permissions, undefined);
   assert.equal(byName.draw.default_member_permissions, undefined);
   assert.equal(byName.get.default_member_permissions, undefined);
 });
