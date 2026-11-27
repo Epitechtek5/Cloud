@@ -80,3 +80,23 @@ jobs:
               -var-file="$ENV.tfvars"
             echo "::endgroup::"
           done
+
+      # Cloud Functions (2nd gen) creates its own source buckets
+      # (gcf-v2-sources-<number>-<region>, gcf-v2-uploads-<number>.<region>...)
+      # outside Terraform: the destroy above leaves them behind (issue #56).
+      - name: Remove the buckets Cloud Functions created outside Terraform
+        run: |
+          set -euo pipefail
+          project="${GOOGLE_CLOUD_PROJECT:?}"
+          number="$(gcloud projects describe "$project" --format='value(projectNumber)')"
+          gcloud storage buckets list --project "$project" --format='value(name)' \
+            | { grep -E "^gcf-v2-(sources|uploads)-${number}[-.]" || true; } \
+            | while read -r bucket; do
+                echo "Removing gs://$bucket"
+                gcloud storage rm --recursive "gs://$bucket"
+              done
+
+      # Proof for the defense: only the state bucket and infra/access are left.
+      # Fails the run if anything else is still there.
+      - name: Check that nothing billable is left
+        run: scripts/check-leftovers.sh "${GOOGLE_CLOUD_PROJECT:?}"
