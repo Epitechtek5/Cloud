@@ -45,7 +45,7 @@ app/functions/
 | `worker.js` | `createPushHandler({ expect, handle })`: HTTP plumbing of a push worker. `204` acks, `400` for a broken message (retries then DLQ), `500` when `handle` throws (retried). |
 | `firestore.js` | `getFirestore()`: lazy Firestore client (emulator when `FIRESTORE_EMULATOR_HOST` is set), `toMillis`. |
 | `grid.js` | Tiles (`tileOf`, `tilesOfRect`, 256x256), `pixelId`, `inGrid`, collection names. |
-| `canvas.js` | `readSession` (`paused`, `clearedAt`), `readRegion` (pixels of a square, newer than the last clear), `renderRegion` (RGBA, scaled). |
+| `canvas.js` | `readSession` (`paused`, `clearedAt`), `readRegion` (pixels of a square, newer than the last clear, on the `(tile, t)` index, at most 100 000 documents read, `truncated` past that), `renderRegion` (RGBA, scaled). |
 | `png.js` | `encodePng(width, height, rgba)`: PNG encoder on `node:zlib`, no image dependency. |
 | `storage.js` | `getStorage()`: lazy Cloud Storage client. |
 | `discordWebhook.js` | `createInteractionClient()`: `editOriginal` / `followUp` of an interaction (JSON or multipart with files), errors flagged `retryable`. |
@@ -86,7 +86,7 @@ export async function drawProxy(req, res) {
 Consumes `pixel.draw` (web brush batches and `/draw`) through `pixel.draw.sub`. One Firestore transaction per
 batch (`store.js`):
 
-1. reads `processedBatches/{batchId}`, `session/state` and `users/{uid}`; a batch whose marker exists is not
+1. reads `processedBatches/{uid}_{batchId}`, `session/state` and `users/{uid}`; a batch whose marker exists is not
    applied again (its stored outcome is replayed: `pixel.processed` again, same Discord answer);
 2. `rules.js` decides: everything rejected (`paused`) while paused; otherwise a **fixed window** of 60 s,
    `limit = users/{uid}.override ?? DEFAULT_RATE_LIMIT` (20), and a batch over the quota is **partially accepted**
