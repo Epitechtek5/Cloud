@@ -13,5 +13,12 @@ auth_discord_redirect_uris = [
   "http://localhost:5173/",
 ]
 
+# Firebase sign-in (#145): the front opens its Firestore listeners after
+# signInWithCustomToken. The Firebase project and Authentication are enabled by
+# hand, once per project (README.md "Firebase sign-in"). The key is a public
+# identifier (it ends up in config.json), restricted to identitytoolkit and securetoken.
+auth_discord_firebase_custom_token = true
+firebase_api_key                   = "AIzaSyD14dgecoCySkrf8CdW0mqLB6LdTw51Lnc"
+
 # discord-proxy (#62), off until discord-public-key has a version (same reason).
 # discord_proxy_enabled = true

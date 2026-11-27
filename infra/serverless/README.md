@@ -68,6 +68,32 @@ browser / Discord proxy ──HTTPS──> global external Application LB (manag
   (serverless NEG of the tile-reader, ingress `internal-and-cloud-load-balancing`) on the same origin and CDN.
 - **API** (#60): `apiBase` is the URL of the API Gateway (`local.gateway_url`); `var.api_base_url` overrides it.
 
+## Firebase sign-in
+
+The front opens its Firestore listeners after `signInWithCustomToken`, with the token `auth-discord` returns when
+`auth_discord_firebase_custom_token = true` (uid = Discord id, signed by the function's own account, which already
+has `serviceAccountTokenCreator` on itself). Firebase itself is **not in Terraform**: `google_firebase_project`
+cannot be destroyed cleanly, which would break the "disposable project" goal. Do these steps once per project
+(done on dev, #145), as an Owner:
+
+```
+P=<project_id>
+gcloud services enable firebase.googleapis.com identitytoolkit.googleapis.com apikeys.googleapis.com --project $P
+T=$(gcloud auth print-access-token)
+# add Firebase to the project (long-running operation, a few seconds)
+curl -X POST -H "Authorization: Bearer $T" -H "x-goog-user-project: $P" -H "Content-Type: application/json" \
+  "https://firebase.googleapis.com/v1beta1/projects/${P}:addFirebase" -d '{}'
+# initialize Authentication (the "Get started" button); no sign-in provider is needed for custom tokens
+curl -X POST -H "Authorization: Bearer $T" -H "x-goog-user-project: $P" -H "Content-Type: application/json" \
+  "https://identitytoolkit.googleapis.com/v2/projects/${P}/identityPlatform:initializeAuth" -d '{}'
+# the key of the front: public, restricted to the two APIs the SDK calls
+gcloud services api-keys create --project $P --display-name=front-firebase \
+  --api-target=service=identitytoolkit.googleapis.com --api-target=service=securetoken.googleapis.com
+```
+
+Put the `keyString` in `firebase_api_key` (tfvars of the environment). Firebase also creates a "Browser key (auto
+created by Firebase)" that allows far more APIs: it is not used here.
+
 ## API Gateway
 
 ```
