@@ -11,10 +11,12 @@ import { response } from "../discord/helpers.js";
 import { ADMIN_ROLE, command, config, fakeDiscord, fakePublisher, pushRequest } from "../commands/helpers.js";
 import { emulatorDb, emulatorOnly, resetEmulator } from "./helpers.js";
 
+const DB = "commands";
+
 const NOW = Date.UTC(2026, 10, 16, 12, 0, 0);
 
 function setup() {
-  const db = emulatorDb();
+  const db = emulatorDb(DB);
   const store = createCommandStore(db, { now: () => NOW });
   const discord = fakeDiscord();
   const { publisher, published } = fakePublisher();
@@ -35,7 +37,7 @@ function setup() {
 }
 
 beforeEach(async () => {
-  if (!emulatorOnly.skip) await resetEmulator();
+  if (!emulatorOnly.skip) await resetEmulator(DB);
 });
 
 test("pause then resume write session/state; a late redelivery of the pause changes nothing", emulatorOnly, async () => {
