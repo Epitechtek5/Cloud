@@ -19,7 +19,7 @@ defaults:
 
 jobs:
   test:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RUNNER }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -45,7 +45,7 @@ jobs:
         run: npm run build
 
   audit:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RUNNER }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4

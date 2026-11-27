@@ -19,7 +19,9 @@ permissions:
 jobs:
   deploy:
     name: deploy-${{ inputs.env }}
-    # Never on the runners: this Terraform creates and destroys their cluster.
+    # Never on the runners (bootstrap exception, see docs/ci/self-hosted-runners.md):
+    # this Terraform creates their cluster, and a change of the cluster or of a
+    # node pool would kill the job in the middle of the apply.
     runs-on: ubuntu-latest
     # The first apply of an environment creates everything, the API Gateway alone
     # takes about 10 minutes. A job cancelled mid-apply can leave the state lock.

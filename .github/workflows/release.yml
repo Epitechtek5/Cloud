@@ -9,6 +9,11 @@ on:
         description: Dry run (no tag, no release), on the selected branch
         type: boolean
         default: true
+      runner:
+        description: "Runners: self-hosted (CI_RUNNER_TRUSTED) or github-hosted (ubuntu-latest, e.g. while the runners cluster is down)"
+        type: choice
+        options: [self-hosted, github-hosted]
+        default: self-hosted
 
 permissions:
   contents: read
@@ -19,7 +24,7 @@ concurrency:
 
 jobs:
   release:
-    runs-on: ${{ vars.CI_RUNNER_TRUSTED || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runner == 'github-hosted' && 'ubuntu-latest' || vars.CI_RUNNER_TRUSTED }}
     timeout-minutes: 15
     steps:
       # A tag pushed with the default GITHUB_TOKEN does not trigger deploy.yml,

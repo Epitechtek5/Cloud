@@ -28,11 +28,15 @@ module "pubsub" {
 | Topic | Published by | Consumer | ack deadline | Max attempts |
 |---|---|---|---|---|
 | `discord.command` | Discord proxy | command worker | 60 s | 5 |
-| `pixel.draw` | draw proxy | draw worker | 30 s | 5 |
-| `pixel.processed` | draw worker | real-time fan-out | 30 s | 5 |
+| `pixel.draw` | draw proxy, command worker (`/draw`) | draw worker | 30 s | 5 |
+| `pixel.processed` | draw worker, command worker (`/admin clear`) | real-time fan-out | 30 s | 5 |
 | `snapshot.requested` | command worker | snapshot worker | 300 s | 5 |
+| `snapshot.ready` | Cloud Storage (object finalized in the snapshots bucket) | snapshot notifier | 60 s | 5 |
 
-`snapshot.ready` is the GCS object event of the snapshot bucket, not a Pub/Sub topic.
+`snapshot.ready` is the GCS object event of the snapshots bucket: a storage notification
+(`infra/serverless/snapshots.tf`, `JSON_API_V1` payload, custom attribute `event_type=snapshot.ready`) publishes it
+on this channel, so it gets the same retry policy and DLQ as the others. The Cloud Storage service agent is its only
+publisher.
 One subscription per consumer: `<topic>.sub`. Each channel also has `<topic>.dlq` and a
 pull subscription `<topic>.dlq.sub` to inspect and replay failed messages.
 

@@ -1,4 +1,5 @@
-# gha-runner-scale-set: one pool of ephemeral runners, installed by Terraform
+# gha-runner-scale-set: values of both pools of ephemeral runners (PR and trusted,
+# the trusted one adds runner-set-trusted-values.yaml), installed by Terraform
 # (infra/foundation/runners.tf). Terraform also sets the per-environment values:
 # the scale set name (the label to put in `runs-on` / CI_RUNNER), the GitHub App
 # secret name, the controller service account and minRunners / maxRunners

@@ -5,12 +5,14 @@
 #
 # Order, enforced by the references and depends_on below:
 #   cluster + node pool + NAT -> namespaces, LimitRange, NetworkPolicy
-#   -> controller -> scale set
+#   -> controller, GitHub App secret (runners_secrets.tf) -> scale sets (PR, trusted)
 # A destroy walks it backwards: the scale set is uninstalled while the
 # controller, the nodes and the NAT still exist, so the controller removes the
 # scale set registration from GitHub (finalizer) before it goes away itself.
 #
-# Not managed here: the GitHub App secret (see docs/ci/self-hosted-runners.md).
+# The GitHub App secret is synced from Secret Manager by External Secrets
+# (runners_secrets.tf); its values are added out of band, see
+# docs/ci/self-hosted-runners.md.
 
 locals {
   arc_chart_repository = "oci://ghcr.io/actions/actions-runner-controller-charts"
@@ -20,11 +22,11 @@ locals {
   # scale set chart cannot discover the controller by itself.
   arc_controller_service_account = "arc-gha-rs-controller"
   # Kubernetes Secret holding the GitHub App id, installation id and private
-  # key, created out of band in the runners namespace.
+  # key, written by External Secrets in the runners namespace.
   arc_github_secret = "arc-github-app"
   runners_values    = "${path.module}/../../k8s/runners"
 
-  runners_namespaces = var.runners_enabled ? toset([local.arc_namespace, local.runners_namespace]) : toset([])
+  runners_namespaces = var.runners_enabled ? toset([local.arc_namespace, local.runners_namespace, local.eso_namespace]) : toset([])
 }
 
 resource "kubernetes_namespace_v1" "runners" {
@@ -36,7 +38,11 @@ resource "kubernetes_namespace_v1" "runners" {
 
   # The node pool and the NAT must outlive the namespaces on destroy: the
   # controller runs there and needs GitHub to clean up the registration.
-  depends_on = [google_container_node_pool.runners, google_compute_router_nat.runners]
+  depends_on = [
+    google_container_node_pool.runners,
+    google_container_node_pool.runners_trusted,
+    google_compute_router_nat.runners,
+  ]
 }
 
 # The dind sidecar injected by the scale set chart has no resources, so the
@@ -154,8 +160,8 @@ resource "helm_release" "arc_controller" {
   timeout = 600
 }
 
-# One pool of ephemeral runners: one job per pod, deleted when the job ends.
-# Its name is the label to put in runs-on / CI_RUNNER.
+# Pool of ephemeral runners for the PR jobs (untrusted code): one job per pod,
+# deleted when the job ends. Its name is the label to put in runs-on / CI_RUNNER.
 resource "helm_release" "arc_runner_set" {
   count = var.runners_enabled ? 1 : 0
 
@@ -183,12 +189,57 @@ resource "helm_release" "arc_runner_set" {
   timeout = 600
 
   # The controller must be running (it reconciles the scale set and removes it
-  # from GitHub on uninstall), and the runner pods must never start without
+  # from GitHub on uninstall, with the GitHub App secret, which must therefore
+  # be uninstalled after it), and the runner pods must never start without
   # their LimitRange and NetworkPolicy.
   depends_on = [
     helm_release.arc_controller,
+    helm_release.arc_github_secret,
     kubernetes_limit_range_v1.runners,
     kubernetes_network_policy_v1.runners_egress,
     kubernetes_network_policy_v1.runners_deny_ingress,
+  ]
+}
+
+# Second pool, for the jobs that hold credentials (CI_RUNNER_TRUSTED): same
+# runner image and limits, but its pods only run on the tainted trusted node
+# pool (gke.tf), never next to a PR job. Same namespace on purpose: the
+# controller only watches one (watchSingleNamespace), and the LimitRange and
+# NetworkPolicy of that namespace apply to these pods too.
+resource "helm_release" "arc_runner_set_trusted" {
+  count = var.runners_enabled ? 1 : 0
+
+  name       = "${var.runners_cluster_name}-trusted"
+  namespace  = kubernetes_namespace_v1.runners[local.runners_namespace].metadata[0].name
+  repository = local.arc_chart_repository
+  chart      = "gha-runner-scale-set"
+  version    = var.runners_arc_version
+
+  values = [
+    file("${local.runners_values}/runner-set-values.yaml"),
+    file("${local.runners_values}/runner-set-trusted-values.yaml"),
+    yamlencode({
+      runnerScaleSetName = "${var.runners_cluster_name}-trusted"
+      githubConfigSecret = local.arc_github_secret
+      minRunners         = 0
+      maxRunners         = var.runners_trusted_max_runners
+      controllerServiceAccount = {
+        namespace = local.arc_namespace
+        name      = local.arc_controller_service_account
+      }
+    }),
+  ]
+
+  wait    = true
+  timeout = 600
+
+  # Same order as the PR scale set, plus its own node pool.
+  depends_on = [
+    helm_release.arc_controller,
+    helm_release.arc_github_secret,
+    kubernetes_limit_range_v1.runners,
+    kubernetes_network_policy_v1.runners_egress,
+    kubernetes_network_policy_v1.runners_deny_ingress,
+    google_container_node_pool.runners_trusted,
   ]
 }

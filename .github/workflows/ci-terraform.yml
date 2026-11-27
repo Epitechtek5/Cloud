@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   validate:
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RUNNER }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -73,7 +73,7 @@ jobs:
     if: github.event.pull_request.head.repo.full_name == github.repository
     # Runs the Terraform of the PR (providers, data sources), so it stays on the
     # PR pool, not on the trusted one (see docs/ci/self-hosted-runners.md).
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RUNNER }}
     timeout-minutes: 20
     permissions:
       contents: read

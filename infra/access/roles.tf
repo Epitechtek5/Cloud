@@ -27,6 +27,7 @@ locals {
     "roles/datastore.owner"                = "Firestore database, indexes and fields"
     "roles/apigateway.admin"               = "API Gateway: API, config and gateway (no key, impersonation or project IAM)"
     "roles/firebaserules.admin"            = "Firestore security rules (ruleset and release)"
+    "roles/monitoring.dashboardEditor"     = "Cloud Monitoring dashboards (google_monitoring_dashboard)"
   }
 
   # Project-level roles of gha-plan. Nothing here can change a resource.
@@ -71,6 +72,19 @@ locals {
     "secretmanager.secrets.setIamPolicy",
     "storage.buckets.getIamPolicy",
     "storage.buckets.setIamPolicy",
+  ]
+
+  # Log-based metrics of the application dashboard (google_logging_metric,
+  # infra/serverless/monitoring.tf), and nothing else of Cloud Logging:
+  # roles/logging.configWriter would also manage sinks, log buckets, views and
+  # exclusions, so the pipeline could export every log out of the project or
+  # silently drop the functions' logs.
+  deploy_log_metrics_permissions = [
+    "logging.logMetrics.create",
+    "logging.logMetrics.delete",
+    "logging.logMetrics.get",
+    "logging.logMetrics.list",
+    "logging.logMetrics.update",
   ]
 
   # Kubernetes RBAC objects created by the ARC Helm charts in the runners
@@ -140,6 +154,21 @@ resource "google_project_iam_custom_role" "deploy_iam_bindings" {
 resource "google_project_iam_member" "deploy_iam_bindings" {
   project = var.project_id
   role    = google_project_iam_custom_role.deploy_iam_bindings.name
+  member  = local.deploy_member
+}
+
+resource "google_project_iam_custom_role" "deploy_log_metrics" {
+  project     = var.project_id
+  role_id     = "ghaDeployLogMetrics"
+  title       = "GitHub deploy: log-based metrics"
+  description = "Log-based metrics of the application dashboard, without sinks, log buckets or exclusions (infra/access)"
+  permissions = local.deploy_log_metrics_permissions
+  stage       = "GA"
+}
+
+resource "google_project_iam_member" "deploy_log_metrics" {
+  project = var.project_id
+  role    = google_project_iam_custom_role.deploy_log_metrics.name
   member  = local.deploy_member
 }
 

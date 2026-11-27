@@ -13,6 +13,10 @@ of each environment: `scripts/bootstrap-state-bucket.sh` creates it (already don
 | `artifacts.tf` | Function source bucket and zip, Artifact Registry repository, build service account |
 | `functions.tf` | One `modules/function` instance per function |
 | `auth_discord.tf` | `POST /auth/discord` (#67) with its variables and outputs |
+| `pixels_api.tf` | Web API (#66): `draw-proxy` (`POST /pixels`) and `pixel-reader` (`GET /pixels/{x}/{y}`) |
+| `snapshots.tf` | Snapshot workflow (#69): snapshot worker, bucket notification `snapshot.ready`, notifier with signed URLs |
+| `draw_worker.tf` | Draw worker (#65): function, push service account, Firestore role, default rate limit |
+| `command_worker.tf` | Command worker (#64): function, push service account, Firestore role, admin variables |
 | `gateway.tf` | API Gateway (#60): gateway service account, API, config, gateway, `gateway-stub` function |
 | `openapi/api.yaml.tftpl` | The OpenAPI 2.0 spec of the gateway, rendered with the function URLs |
 | `frontend.tf` | Frontend bucket (private), generated `config.json`, HTTPS load balancer with Cloud CDN |
@@ -20,6 +24,7 @@ of each environment: `scripts/bootstrap-state-bucket.sh` creates it (already don
 | `firestore.rules` | Browser security rules: read-only, own documents only (tests in `tests/firestore-rules`) |
 | `storage.tf` | Private `tiles` and `snapshots` buckets |
 | `pubsub.tf` | Topics, consumer subscriptions and dead-letter topics (`modules/pubsub`, see `docs/pubsub.md`) |
+| `monitoring.tf` | Log-based metrics and the application dashboard (`modules/dashboard`, #73, `docs/observability.md`) |
 | `outputs.tf` | `app_url` (deploy smoke test contract) and ids reused by the other issues |
 
 ## Function source
@@ -60,12 +65,39 @@ browser / Discord proxy ──HTTPS──> global external Application LB (manag
 - **First deploy of an environment**: the certificate takes up to about an hour to become `ACTIVE`; until then
   HTTPS fails and the smoke test may be red. Re-run the deploy job once
   `gcloud compute ssl-certificates list` shows `ACTIVE`.
-- **The IP is the identity**: `destroy.yml` releases the address, so after a destroy and redeploy the sslip.io
-  host changes, and so do the Discord OAuth2 redirect and the Activity `/` mapping
-  ([docs/discord-activity.md](../../docs/discord-activity.md) §1).
+- **The IP is the identity**: the global address `frontend` is reserved by `infra/access` (`persistent.tf`), not by
+  this stack, so `destroy.yml` keeps it. The sslip.io host, the certificate domain, the Discord OAuth2 redirect and
+  the Activity `/` mapping ([docs/discord-activity.md](../../docs/discord-activity.md) §1) stay the same after a
+  destroy and redeploy ([docs/reproducibility.md](../../docs/reproducibility.md)).
 - **Tiles** (open question A, #68): `local.frontend_tiles_backend` adds a `/tiles/*` route to a backend service
   (serverless NEG of the tile-reader, ingress `internal-and-cloud-load-balancing`) on the same origin and CDN.
 - **API** (#60): `apiBase` is the URL of the API Gateway (`local.gateway_url`); `var.api_base_url` overrides it.
+
+## Firebase sign-in
+
+The front opens its Firestore listeners after `signInWithCustomToken`, with the token `auth-discord` returns when
+`auth_discord_firebase_custom_token = true` (uid = Discord id, signed by the function's own account, which already
+has `serviceAccountTokenCreator` on itself). Firebase itself is **not in Terraform**: `google_firebase_project`
+cannot be destroyed cleanly, which would break the "disposable project" goal. Do these steps once per project
+(done on dev, #145), as an Owner:
+
+```
+P=<project_id>
+gcloud services enable firebase.googleapis.com identitytoolkit.googleapis.com apikeys.googleapis.com --project $P
+T=$(gcloud auth print-access-token)
+# add Firebase to the project (long-running operation, a few seconds)
+curl -X POST -H "Authorization: Bearer $T" -H "x-goog-user-project: $P" -H "Content-Type: application/json" \
+  "https://firebase.googleapis.com/v1beta1/projects/${P}:addFirebase" -d '{}'
+# initialize Authentication (the "Get started" button); no sign-in provider is needed for custom tokens
+curl -X POST -H "Authorization: Bearer $T" -H "x-goog-user-project: $P" -H "Content-Type: application/json" \
+  "https://identitytoolkit.googleapis.com/v2/projects/${P}/identityPlatform:initializeAuth" -d '{}'
+# the key of the front: public, restricted to the two APIs the SDK calls
+gcloud services api-keys create --project $P --display-name=front-firebase \
+  --api-target=service=identitytoolkit.googleapis.com --api-target=service=securetoken.googleapis.com
+```
+
+Put the `keyString` in `firebase_api_key` (tfvars of the environment). Firebase also creates a "Browser key (auto
+created by Firebase)" that allows far more APIs: it is not used here.
 
 ## API Gateway
 
@@ -84,7 +116,7 @@ Google ID token with that account for every call (`jwt_audience` in the spec).
 | `GET /health` | none | `health` (deploy smoke test) |
 | `POST /discord/interactions` | none: the proxy verifies the Ed25519 signature | `discord-proxy` |
 | `POST /auth/discord` | none: it creates the session | `auth-discord` |
-| `POST /pixels`, `GET /pixels/{x}/{y}` | session JWT | proxy of #66, `gateway-stub` until then |
+| `POST /pixels`, `GET /pixels/{x}/{y}` | session JWT | `draw-proxy`, `pixel-reader` (`pixels_api.tf`, #66) |
 | `GET /tiles/{tx}/{file}` | session JWT | only with `gateway_tiles_route = true` (option 1 of open question A) |
 | `OPTIONS` on the routes the browser calls | none | the same backend, which answers the CORS preflight |
 
@@ -198,7 +230,9 @@ and the snapshots bucket refuses `force_destroy`, so `destroy.yml` stops there u
 printf '%s' "$VALUE" | gcloud secrets versions add discord-public-key --project <project_id> --data-file=-
 ```
 
-`discord-public-key`, `discord-bot-token`, `discord-oauth-client-secret`: never in tfvars.
+`discord-public-key`, `discord-bot-token`, `discord-oauth-client-secret`: never in tfvars. Their containers belong to
+`infra/access` (`persistent.tf`): this stack only reads them, so `destroy.yml` keeps the containers and their values,
+and the next apply needs no manual step.
 
 A function cannot start while one of its secrets has no version: add them **before** the first apply that deploys it.
 The session JWT needs no secret: `auth-discord` signs it as its own service account (IAM Credentials), and the gateway

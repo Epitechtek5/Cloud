@@ -51,14 +51,16 @@ resource "google_cloudfunctions2_function" "this" {
   }
 
   service_config {
-    service_account_email          = google_service_account.this.email
-    ingress_settings               = var.ingress
-    all_traffic_on_latest_revision = true
-    available_memory               = var.memory
-    timeout_seconds                = var.timeout_seconds
-    min_instance_count             = var.min_instances
-    max_instance_count             = var.max_instances
-    environment_variables          = merge({ FUNCTION_NAME = var.name }, var.environment_variables)
+    service_account_email            = google_service_account.this.email
+    ingress_settings                 = var.ingress
+    all_traffic_on_latest_revision   = true
+    available_memory                 = var.memory
+    available_cpu                    = var.cpu
+    max_instance_request_concurrency = var.concurrency
+    timeout_seconds                  = var.timeout_seconds
+    min_instance_count               = var.min_instances
+    max_instance_count               = var.max_instances
+    environment_variables            = merge({ FUNCTION_NAME = var.name }, var.environment_variables)
 
     dynamic "secret_environment_variables" {
       for_each = var.secret_env

@@ -26,17 +26,17 @@ variable "cidr_block" {
 variable "runners_enabled" {
   type        = bool
   default     = false
-  description = "Create the GKE cluster of the self-hosted runners. Only one cluster serves CI (CI_RUNNER points to a single scale set), so only dev enables it"
+  description = "Create the GKE cluster of the self-hosted runners. Only one cluster serves CI (CI_RUNNER and CI_RUNNER_TRUSTED point to its two scale sets), so only prd enables it"
 }
 
 variable "runners_zone" {
   type        = string
   default     = ""
-  description = "Zone of the (zonal) runners cluster, e.g. europe-west1-b; required when runners_enabled"
+  description = "Zone of the (zonal) runners cluster, e.g. europe-west9-b; required when runners_enabled"
 
   validation {
     condition     = !var.runners_enabled || startswith(var.runners_zone, "${var.region}-")
-    error_message = "runners_zone must be a zone of var.region (e.g. europe-west1-b for europe-west1)."
+    error_message = "runners_zone must be a zone of var.region (e.g. europe-west9-b for europe-west9)."
   }
 }
 
@@ -97,6 +97,17 @@ variable "runners_arc_version" {
   }
 }
 
+variable "runners_eso_version" {
+  type        = string
+  default     = "2.15.0"
+  description = "Version of the External Secrets Operator chart that syncs the runners GitHub App secret from Secret Manager. Bump it on purpose, after reading the release notes"
+
+  validation {
+    condition     = can(regex("^[0-9]+[.][0-9]+[.][0-9]+$", var.runners_eso_version))
+    error_message = "runners_eso_version must be an exact chart version, e.g. 2.15.0."
+  }
+}
+
 variable "runners_min_runners" {
   type        = number
   default     = 0
@@ -111,5 +122,27 @@ variable "runners_max_runners" {
   validation {
     condition     = var.runners_max_runners >= var.runners_min_runners && var.runners_max_runners > 0
     error_message = "runners_max_runners must be positive and at least runners_min_runners."
+  }
+}
+
+variable "runners_trusted_max_nodes" {
+  type        = number
+  default     = 1
+  description = "Maximum number of nodes of the trusted node pool (jobs holding credentials, never shared with PR jobs). It scales from 0"
+
+  validation {
+    condition     = var.runners_trusted_max_nodes > 0
+    error_message = "runners_trusted_max_nodes must be positive."
+  }
+}
+
+variable "runners_trusted_max_runners" {
+  type        = number
+  default     = 2
+  description = "Maximum number of concurrent trusted runner pods (deploy build, release, architecture). An e2-standard-4 node holds 2"
+
+  validation {
+    condition     = var.runners_trusted_max_runners > 0
+    error_message = "runners_trusted_max_runners must be positive."
   }
 }

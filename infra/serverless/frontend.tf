@@ -42,7 +42,7 @@ locals {
 
   # Without a domain of our own, sslip.io resolves <a-b-c-d>.sslip.io to the IP
   # a.b.c.d, which is enough for a Google-managed certificate. See README.md.
-  frontend_domain = coalesce(var.frontend_domain, "${replace(google_compute_global_address.frontend.address, ".", "-")}.sslip.io")
+  frontend_domain = coalesce(var.frontend_domain, "${replace(data.google_compute_global_address.frontend.address, ".", "-")}.sslip.io")
 
   # The gateway of gateway.tf, unless api_base_url says otherwise.
   frontend_api_base = coalesce(var.api_base_url, local.gateway_url)
@@ -166,11 +166,21 @@ resource "google_storage_bucket_iam_member" "frontend_lb_reader" {
   depends_on = [google_compute_backend_bucket.frontend]
 }
 
-resource "google_compute_global_address" "frontend" {
+# Owned by infra/access (persistent.tf), never destroyed with this stack: the
+# URL, the certificate and the Discord redirect URIs all derive from this IP,
+# so it must not change across a destroy -> apply cycle (issue #56).
+data "google_compute_global_address" "frontend" {
   project = var.project_id
   name    = "frontend"
+}
 
-  depends_on = [google_project_service.this]
+# Moved to infra/access: forget it without deleting it.
+removed {
+  from = google_compute_global_address.frontend
+
+  lifecycle {
+    destroy = false
+  }
 }
 
 # The name carries a hash of the domain: a new domain needs a new certificate,
@@ -253,7 +263,7 @@ resource "google_compute_global_forwarding_rule" "frontend_https" {
   project               = var.project_id
   name                  = "frontend-https"
   target                = google_compute_target_https_proxy.frontend.id
-  ip_address            = google_compute_global_address.frontend.id
+  ip_address            = data.google_compute_global_address.frontend.id
   port_range            = "443"
   ip_protocol           = "TCP"
   load_balancing_scheme = "EXTERNAL_MANAGED"
@@ -283,7 +293,7 @@ resource "google_compute_global_forwarding_rule" "frontend_http" {
   project               = var.project_id
   name                  = "frontend-http"
   target                = google_compute_target_http_proxy.frontend_redirect.id
-  ip_address            = google_compute_global_address.frontend.id
+  ip_address            = data.google_compute_global_address.frontend.id
   port_range            = "80"
   ip_protocol           = "TCP"
   load_balancing_scheme = "EXTERNAL_MANAGED"

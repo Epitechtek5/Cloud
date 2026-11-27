@@ -11,13 +11,23 @@ on:
     paths-ignore:
       - "docs/**"
       - "**/*.md"
+  # Manual run: redeploys dev from the dev branch, or prd from a v* tag (still
+  # behind the prd reviewers). With runner=github-hosted it is also the way to
+  # recreate dev, and its runners, while their cluster does not exist.
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: "Runners: self-hosted (CI_RUNNER_TRUSTED) or github-hosted (ubuntu-latest, e.g. while the runners cluster is down)"
+        type: choice
+        options: [self-hosted, github-hosted]
+        default: self-hosted
 
 permissions:
   contents: read
 
 jobs:
   build:
-    runs-on: ${{ vars.CI_RUNNER_TRUSTED || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runner == 'github-hosted' && 'ubuntu-latest' || vars.CI_RUNNER_TRUSTED }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -31,6 +41,10 @@ jobs:
         run: |
           npm ci
           npm run build
+          # The self-hosted runner image has no zip binary (GitHub-hosted has).
+          if ! command -v zip >/dev/null; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends zip
+          fi
           mkdir -p "$RUNNER_TEMP/artifact"
           (cd dist && zip -qr "$RUNNER_TEMP/artifact/functions.zip" .)
 
@@ -75,6 +89,8 @@ jobs:
   architecture:
     needs: deploy-prd
     uses: ./.github/workflows/architecture.yml
+    with:
+      runner: ${{ inputs.runner || 'self-hosted' }}
     # publish reads repository secrets (GitHub App); a reusable workflow only
     # receives them when they are passed explicitly.
     secrets: inherit

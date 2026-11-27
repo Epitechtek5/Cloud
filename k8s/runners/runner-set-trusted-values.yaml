@@ -1,0 +1,14 @@
+# Layered over runner-set-values.yaml for the trusted scale set
+# (helm_release.arc_runner_set_trusted in infra/foundation/runners.tf): the jobs
+# that hold credentials run on the tainted `runners-trusted` node pool only,
+# never on a node shared with PR jobs. Helm merges the maps, so the runner
+# container and the dind mode come from runner-set-values.yaml.
+template:
+  spec:
+    nodeSelector:
+      purpose: ci-runners-trusted
+    tolerations:
+      - key: ci-runners
+        operator: Equal
+        value: trusted
+        effect: NoSchedule
