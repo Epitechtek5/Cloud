@@ -71,7 +71,8 @@ export function createDrawWorker({ getStore, publisher, discord, logger }) {
         });
 
       // Replayed on a redelivery too: if the previous delivery committed then
-      // failed before publishing, nothing is lost. Consumers dedupe on batchId.
+      // failed before publishing, nothing is lost. Consumers dedupe on
+      // (userId, batchId): a batch id is only unique per user.
       await publisher.publish(
         "pixel.processed",
         {
