@@ -27,6 +27,8 @@ interface Entry<S> {
  */
 export class TileManager<S extends TileSurface = TileSurface> {
   private entries = new Map<string, Entry<S>>();
+  /** `SessionState.clearedAt`: nothing painted up to that time may be shown. */
+  private clearedAt = 0;
   /** Total deltas applied since start (debug overlay). */
   deltaCount = 0;
 
@@ -67,6 +69,21 @@ export class TileManager<S extends TileSurface = TileSurface> {
     }
   }
 
+  /**
+   * Call with every `SessionState.clearedAt`. A newer clear reloads every open tile: its raster and the
+   * pixels it already shows are all erased, and the new subscription starts after the clear.
+   */
+  setClearedAt(clearedAt: number): void {
+    if (clearedAt <= this.clearedAt) return;
+    this.clearedAt = clearedAt;
+    // Copy first: `open` adds to the map, which a live iteration would visit again, endlessly.
+    for (const [key, e] of [...this.entries]) {
+      this.evict(key, e);
+      this.open(e.tx, e.ty);
+    }
+    this.onChange();
+  }
+
   dispose(): void {
     for (const [key, e] of this.entries) this.evict(key, e);
   }
@@ -86,14 +103,17 @@ export class TileManager<S extends TileSurface = TileSurface> {
     // Raster first, subscription second. The raster carries a version (the time of its newest
     // pixel); subscribing "since" that version makes the channel deliver exactly what the raster
     // misses, then live changes. Nothing is lost between the two and nothing has to be buffered.
+    // After an /admin clear, the pixels older than the clear are still stored: start after the clear,
+    // and drop a raster rendered before it (a CDN copy can outlive the clear by its max-age).
     this.source
       .loadTile(tx, ty, entry.abort.signal)
       .then((raster) => {
         if (this.entries.get(key) !== entry) return; // evicted meanwhile: do not subscribe
-        if (raster.rgba) entry.surface.putRaster(raster.rgba);
+        const stale = this.clearedAt > 0 && raster.version <= this.clearedAt;
+        if (raster.rgba && !stale) entry.surface.putRaster(raster.rgba);
         entry.ready = true;
         entry.unsubscribe = this.realtime.subscribeTile(tx, ty, (deltas) => this.apply(entry, deltas), {
-          since: raster.version,
+          since: Math.max(raster.version, this.clearedAt),
         });
         this.onChange(); // the raster itself is now visible
       })

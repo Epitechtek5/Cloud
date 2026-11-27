@@ -6,7 +6,7 @@ import { CanvasApp } from './canvas/canvasApp';
 import type { Backend } from './contract';
 import { DrawController } from './draw/drawController';
 import { detectPlatform } from './platform/context';
-import { loadRuntimeConfig } from './runtimeConfig';
+import { loadRuntimeConfig, type RuntimeConfig } from './runtimeConfig';
 import { Hud } from './ui/hud';
 import { addUserBadge, showLogin, showMessage } from './ui/screens';
 import { Toolbar } from './ui/toolbar';
@@ -19,8 +19,9 @@ async function main(): Promise<void> {
 
   const stop = showMessage(root, platform === 'activity' ? 'Connecting to Discord…' : 'Loading…');
   let auth: AuthProvider;
+  let rc: RuntimeConfig | undefined;
   try {
-    const rc = __BACKEND__ === 'mock' ? undefined : await loadRuntimeConfig();
+    rc = __BACKEND__ === 'mock' ? undefined : await loadRuntimeConfig();
     auth = await createAuth(platform, rc);
   } catch (e) {
     stop();
@@ -46,7 +47,7 @@ async function main(): Promise<void> {
 
   let backend: Backend;
   try {
-    backend = await createBackend(auth);
+    backend = await createBackend(auth, rc);
   } catch (e) {
     showMessage(root, e instanceof Error ? e.message : 'Unexpected error', 'error');
     return;

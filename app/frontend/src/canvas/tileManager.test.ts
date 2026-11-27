@@ -176,6 +176,59 @@ describe('TileManager', () => {
     expect(events).toEqual(['load 0:0']);
   });
 
+  it('after a clear, drops a raster rendered before it and subscribes from the clear', async () => {
+    // A CDN copy of the raster can outlive the clear: version 900 <= clearedAt 1000.
+    const { mgr, since, surfaces, load } = setup();
+    mgr.setClearedAt(1000);
+    mgr.setVisible(ONE_TILE);
+    load(900);
+    await flush();
+    expect(surfaces.get('0:0')!.log).toEqual([]);
+    expect(since.get('0:0')).toBe(1000); // the erased pixels are still stored: never replay them
+  });
+
+  it('after a clear, keeps a raster rendered after it and subscribes from its version', async () => {
+    const { mgr, since, surfaces, load } = setup();
+    mgr.setClearedAt(1000);
+    mgr.setVisible(ONE_TILE);
+    load(1500);
+    await flush();
+    expect(surfaces.get('0:0')!.log).toEqual(['raster']);
+    expect(since.get('0:0')).toBe(1500);
+  });
+
+  it('reloads every open tile when a newer clear arrives', async () => {
+    const { mgr, listeners, since, unsub, surfaces, load, events, onChange } = setup();
+    mgr.setVisible(ONE_TILE);
+    load(500);
+    await flush();
+    const before = surfaces.get('0:0');
+    onChange.mockClear();
+
+    mgr.setClearedAt(1000);
+    expect(unsub).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledTimes(1); // the erased tile disappears right away
+    expect(mgr.get(0, 0)).toBeUndefined();
+    expect(events.filter((e) => e === 'load 0:0')).toHaveLength(2);
+
+    load(0, null); // the tile reader now answers "empty"
+    await flush();
+    expect(surfaces.get('0:0')).not.toBe(before); // a fresh surface, the old pixels are gone
+    expect(since.get('0:0')).toBe(1000);
+    expect(listeners.has('0:0')).toBe(true);
+  });
+
+  it('ignores a clear that is not newer than the one it knows', async () => {
+    const { mgr, events, load } = setup();
+    mgr.setClearedAt(1000);
+    mgr.setVisible(ONE_TILE);
+    load(1500);
+    await flush();
+    mgr.setClearedAt(1000); // the same session/state snapshot again (pause, resume...)
+    mgr.setClearedAt(0);
+    expect(events.filter((e) => e === 'load 0:0')).toHaveLength(1);
+  });
+
   it('ignores deltas that do not belong to the tile', async () => {
     const { mgr, listeners, surfaces, load } = setup();
     mgr.setVisible(ONE_TILE);

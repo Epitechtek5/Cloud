@@ -53,6 +53,9 @@ export class CanvasApp {
       () => this.requestDraw(),
       (d) => this.draw.onDelta(d),
     );
+    // Lives as long as the page, like the app itself. Tiles opened before the first state arrives are
+    // reloaded by it if the grid has been cleared.
+    backend.realtime.subscribeSession((s) => this.tiles.setClearedAt(s.clearedAt));
     this.tools.subscribe(() => {
       canvas.style.cursor = this.tools.tool === 'brush' ? 'crosshair' : 'default';
       this.requestDraw();

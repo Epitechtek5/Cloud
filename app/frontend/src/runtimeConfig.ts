@@ -9,7 +9,11 @@ export interface RuntimeConfig {
   /** Public Discord application id of THIS environment (dev and prd use different applications). */
   discordClientId: string;
   firebase: { apiKey: string; projectId: string; authDomain: string };
+  /** Base URL of the tile rasters (same-origin path by default, see docs/frontend-contract.md question A). */
+  tilesBase: string;
 }
+
+export const DEFAULT_TILES_BASE = '/tiles';
 
 const BAD = 'Invalid /config.json: expected { env, apiBase, discordClientId, firebase: { apiKey, projectId, authDomain } }';
 
@@ -44,7 +48,15 @@ export function parseRuntimeConfig(raw: unknown): RuntimeConfig {
   ) {
     throw new Error(BAD);
   }
-  return { env: o.env, apiBase: normalizeApiBase(o.apiBase), discordClientId: o.discordClientId, firebase: fb };
+  const tilesBase = (o as { tilesBase?: unknown }).tilesBase;
+  if (tilesBase !== undefined && typeof tilesBase !== 'string') throw new Error(BAD);
+  return {
+    env: o.env,
+    apiBase: normalizeApiBase(o.apiBase),
+    discordClientId: o.discordClientId,
+    firebase: fb,
+    tilesBase: normalizeApiBase(tilesBase ?? DEFAULT_TILES_BASE),
+  };
 }
 
 export async function loadRuntimeConfig(url = '/config.json'): Promise<RuntimeConfig> {

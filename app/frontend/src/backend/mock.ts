@@ -79,7 +79,7 @@ export function createMockBackend({ latency = 60, botRate = 25, rateLimit }: Moc
   const tileSubs = new Map<string, Set<(d: PixelDelta[]) => void>>();
   const sessionSubs = new Set<(s: SessionState) => void>();
   const userSubs = new Set<(e: UserEvent) => void>();
-  const session: SessionState = { paused: false };
+  const session: SessionState = { paused: false, clearedAt: 0 };
   const sleep = (ms: number, signal?: AbortSignal) =>
     new Promise<void>((res, rej) => {
       const t = setTimeout(res, ms);

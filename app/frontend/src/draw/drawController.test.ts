@@ -106,20 +106,20 @@ describe('DrawController', () => {
 
   it('refuses to paint while paused and recovers on resume', () => {
     const { ctl, draw, notices, emitSession } = setup();
-    emitSession({ paused: true });
+    emitSession({ paused: true, clearedAt: 0 });
     ctl.paint([px(1)]);
     ctl.flush();
     expect(ctl.pending.size).toBe(0);
     expect(draw).not.toHaveBeenCalled();
     expect(notices.some((n) => /paused/i.test(n.text))).toBe(true);
-    emitSession({ paused: false });
+    emitSession({ paused: false, clearedAt: 0 });
     ctl.paint([px(1)]);
     expect(ctl.pending.size).toBe(1);
   });
 
   it('does not flood notices while a stroke is painted during a pause', () => {
     const { ctl, notices, emitSession } = setup();
-    emitSession({ paused: true });
+    emitSession({ paused: true, clearedAt: 0 });
     notices.length = 0;
     for (let i = 0; i < 20; i++) ctl.paint([px(i)]);
     expect(notices).toHaveLength(1);

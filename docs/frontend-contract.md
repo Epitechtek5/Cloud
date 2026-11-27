@@ -61,10 +61,14 @@ Voir [discord-activity.md](discord-activity.md). **Ajout proposé** à la répon
 Pour ne pas relire des milliers de documents, chaque tuile a un **raster** régénéré par un worker (snapshot périodique, cf. C06 §4.3) :
 
 - `GET /tiles/{tx}/{ty}.png` : PNG 256x256, **alpha 0** pour les pixels jamais peints. `404` si la tuile est vide.
-- En-tête `X-Tile-Version: <epoch ms>` = `t` du pixel le plus récent inclus dans le raster (`0` si 404). Il doit être exposé en CORS
-  (`Access-Control-Expose-Headers`) si l'origine diffère de celle de l'app.
+- **Version** = `t` du pixel le plus récent inclus dans le raster (epoch ms), lue **dans le PNG** : chunk `tEXt` de clé
+  `Tile-Version` (`0` sur un 404). Aucun en-tête n'est nécessaire, donc aucune fonction devant le bucket.
 - `Cache-Control: public, max-age=60` : la fraîcheur vient des deltas (section 3), pas du cache.
 - Le bucket qui contient les rasters reste **privé** (exigence du sujet) ; voir la question ouverte A.
+- Côté front (`src/backend/gcp/tiles.ts`) : l'URL de base vient de `tilesBase` dans `/config.json` (optionnel, `/tiles` par défaut,
+  donc même origine). Un `404` vaut « tuile vide » (version 0, tous les pixels viennent alors de Firestore) ; une réponse 200 qui n'est
+  pas un PNG (page de repli du CDN) ou sans `Tile-Version` valide dans le PNG est une **erreur** : la tuile est retentée au prochain
+  mouvement de la vue. Aucun `Authorization` n'est envoyé : le load balancer sert le bucket privé par un backend bucket (#68).
 
 ## 3. Temps réel : Firestore en lecture seule (`RealtimeChannel`)
 
@@ -83,7 +87,7 @@ complet (découpage, deltas, rasters, cache) est dans [data-model.md](data-model
 
 Pour chaque tuile visible, le front :
 
-1. télécharge le raster et lit `X-Tile-Version` = `v` ;
+1. télécharge le raster et lit sa version `v` (chunk `Tile-Version` du PNG) ;
 2. ouvre `pixels.where("tile","==","tx_ty").where("t",">", v).orderBy("t").limit(65536)`.
 
 La **limite est obligatoire** : les règles refusent toute requête sur `pixels` sans `limit` ou avec plus de 65 536 (la taille
@@ -94,15 +98,21 @@ polling, aucun pixel perdu entre le raster et l'abonnement**. L'effacement (`/ad
 (10^10 pixels), mais un signal (`pixel.processed` avec `cleared: true`) ; le front oublie ses deltas et recharge les rasters.
 
 > Conséquence : le front s'abonne **après** avoir chargé le raster. C'est fait dans le front et le mock :
-> `TileSource.loadTile` renvoie `{ rgba, version }` (`version` = `X-Tile-Version`, `0` pour une tuile vide) et
+> `TileSource.loadTile` renvoie `{ rgba, version }` (`version` lue dans le PNG, `0` pour une tuile vide) et
 > `RealtimeChannel.subscribeTile(tx, ty, cb, { since: version })` ne livre que les pixels `t > since`, puis les changements en direct.
-> L'adaptateur GCP devra respecter cette sémantique (`where("t", ">", since)`).
+> L'adaptateur GCP (`src/backend/gcp/`) respecte cette sémantique (`where("t", ">", Timestamp.fromMillis(since))`).
 
 ### État global : `session/state`
 
-`{ paused: boolean, clearedAt, epoch, updatedAt }`, écrit par le worker de commandes (`/admin pause|resume|clear`). Le front
-désactive les outils quand `paused`. Quand `clearedAt` change (`/admin clear`), il oublie ses deltas et recharge les rasters ;
-un pixel dont `t <= clearedAt` est effacé ([data-model.md](data-model.md) §3, « Effacement de la grille »).
+`{ paused: boolean, clearedAt, epoch, updatedAt }`, écrit par le worker de commandes (`/admin pause|resume|clear`). Le front désactive les outils quand `paused`.
+
+`/admin clear` n'efface aucun document : il avance `clearedAt` (horodatage serveur), et un pixel n'est visible que si `t > clearedAt`. Le front
+(`TileManager`) lit `clearedAt` (en ms, plancher) et :
+- s'abonne à chaque tuile depuis `since = max(version, clearedAt)`, sinon il rejouerait les pixels effacés, toujours stockés ;
+- ignore un raster dont `version <= clearedAt` (une copie en cache CDN peut survivre au clear pendant son `max-age`) ;
+- recharge toutes les tuiles ouvertes quand un `clearedAt` plus récent arrive (clients déjà ouverts au moment du clear).
+
+Voir aussi [data-model.md](data-model.md) §3, « Effacement de la grille ».
 
 ### Par utilisateur : `users/{uid}` et `userEvents/{id}`
 

@@ -9,6 +9,8 @@ export interface Session {
   token: string;
   /** epoch ms */
   expiresAt: number;
+  /** Firebase custom token (uid = Discord id) used to read Firestore; absent when the login service has it disabled. */
+  firebaseToken?: string;
 }
 
 export class AuthError extends Error {

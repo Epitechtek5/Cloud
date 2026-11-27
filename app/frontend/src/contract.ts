@@ -37,6 +37,11 @@ export interface DrawPixel {
 
 export interface SessionState {
   paused: boolean;
+  /**
+   * Epoch ms of the last `/admin clear`, 0 if the grid was never cleared. Pixels painted up to that time
+   * are erased, and so is any raster whose `version` is not newer.
+   */
+  clearedAt: number;
 }
 
 export type UserEvent =
@@ -49,7 +54,7 @@ export type Unsubscribe = () => void;
 export interface TileRaster {
   /** RGBA, TILE_SIZE*TILE_SIZE*4. Unpainted pixels have alpha 0. `null` when nothing was ever painted there. */
   rgba: Uint8ClampedArray | null;
-  /** Epoch ms of the most recent pixel included in the raster (`X-Tile-Version`); 0 for an empty tile. */
+  /** Epoch ms of the most recent pixel included in the raster (`Tile-Version` text chunk of the PNG); 0 for an empty tile. */
   version: number;
 }
 

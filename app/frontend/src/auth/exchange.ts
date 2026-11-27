@@ -21,7 +21,7 @@ type Fetch = typeof fetch;
 /**
  * POST {apiBase}/auth/discord. The gateway function holds the Discord client secret, exchanges
  * the code, reads the user with the `identify` scope and answers with our own short-lived token.
- * Expected body: { token, expiresIn (s), user: { id, username }, discordAccessToken? }.
+ * Expected body: { token, expiresIn (s), user: { id, username }, discordAccessToken?, firebaseToken? }.
  */
 export async function exchangeCode(fetchFn: Fetch, apiBase: string, req: ExchangeRequest, now = Date.now()): Promise<ExchangeResult> {
   let res: Response;
@@ -44,12 +44,18 @@ export async function exchangeCode(fetchFn: Fetch, apiBase: string, req: Exchang
     typeof b.expiresIn !== 'number' ||
     typeof user?.id !== 'string' ||
     typeof user.username !== 'string' ||
-    (b.discordAccessToken !== undefined && typeof b.discordAccessToken !== 'string')
+    (b.discordAccessToken !== undefined && typeof b.discordAccessToken !== 'string') ||
+    (b.firebaseToken !== undefined && typeof b.firebaseToken !== 'string')
   ) {
     throw new AuthError('Unexpected response from the login service.', 'exchange_failed');
   }
   return {
-    session: { token: b.token, expiresAt: now + b.expiresIn * 1000, user: { id: user.id, username: user.username } },
+    session: {
+      token: b.token,
+      expiresAt: now + b.expiresIn * 1000,
+      user: { id: user.id, username: user.username },
+      ...(b.firebaseToken !== undefined && { firebaseToken: b.firebaseToken as string }),
+    },
     discordAccessToken: b.discordAccessToken as string | undefined,
   };
 }
