@@ -41,7 +41,7 @@ locals {
   # replacing one (a failed build leaves it tainted) would then fail with 409
   # "already exists", since the new function has the same name as the old one.
   # Keep these names in sync with the `name` of the modules.
-  function_url = { for name in ["health", "gateway-stub", "discord-proxy", "auth-discord"] :
+  function_url = { for name in ["health", "gateway-stub", "discord-proxy", "auth-discord", "draw-proxy", "pixel-reader"] :
     name => "https://${name}-${data.google_project.this.number}.${var.region}.run.app"
   }
 
@@ -54,8 +54,8 @@ locals {
     health               = local.function_url["health"]
     discord_interactions = local.function_url[var.discord_proxy_enabled ? "discord-proxy" : "gateway-stub"]
     auth_discord         = local.function_url[local.auth_discord_enabled ? "auth-discord" : "gateway-stub"]
-    pixels_draw          = local.function_url["gateway-stub"] # POST /pixels (proxy of #66)
-    pixel_get            = local.function_url["gateway-stub"] # GET /pixels/{x}/{y} (proxy of #66)
+    pixels_draw          = local.function_url["draw-proxy"]   # POST /pixels (pixels_api.tf)
+    pixel_get            = local.function_url["pixel-reader"] # GET /pixels/{x}/{y} (pixels_api.tf)
     tiles                = local.function_url["gateway-stub"] # tile-reader (#68), option 1 of question A
   }
 

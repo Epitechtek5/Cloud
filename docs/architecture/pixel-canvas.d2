@@ -1,0 +1,492 @@
+# Architecture of the pixel canvas on Google Cloud (source of the diagram).
+#
+# Maintained by hand, derived from the Terraform of `infra/foundation`, `infra/serverless`, `infra/access` and
+# `infra/billing` on `dev`. Rendered to `pixel-canvas.svg` with D2 (see docs/architecture.md).
+# Official Google Cloud icons: ./icons (see ./icons/README.md).
+#
+# Reading guide
+#   - Solid boxes exist in the deployed Terraform. Dashed amber boxes and dashed arrows are PLANNED: the pull request
+#     is open but not merged yet (#126 to #131, #68). Remove the `planned` class when each one is merged.
+#   - Purple boxes are IAM boundaries: one service account per function, with its own permissions.
+#   - Arrow colours: blue = request flow, green = event flow, red = real-time channel back to the browser,
+#     grey = platform (secrets, logs, CI). The label of an arrow starts with its protocol.
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+    theme-id: 0
+    pad: 40
+  }
+}
+
+direction: right
+
+classes: {
+  planned: {
+    style: {
+      stroke-dash: 4
+      stroke: "#B26A00"
+      fill: "#FFF4D6"
+    }
+  }
+  sa: {
+    style: {
+      stroke: "#7B1FA2"
+      fill: "#F6EEFA"
+      border-radius: 8
+    }
+  }
+  sa_planned: {
+    style: {
+      stroke: "#7B1FA2"
+      stroke-dash: 4
+      fill: "#FFF4D6"
+      border-radius: 8
+    }
+  }
+  perm: {
+    shape: text
+    style: {
+      font-size: 12
+      font-color: "#4A148C"
+    }
+  }
+  layer: {
+    style: {
+      fill: "#F8F9FA"
+      stroke: "#9AA0A6"
+      border-radius: 8
+    }
+  }
+  req: {
+    style: {
+      stroke: "#1A73E8"
+      font-color: "#174EA6"
+      font-size: 13
+    }
+  }
+  evt: {
+    style: {
+      stroke: "#188038"
+      font-color: "#0D652D"
+      font-size: 13
+    }
+  }
+  rt: {
+    style: {
+      stroke: "#C5221F"
+      font-color: "#A50E0E"
+      font-size: 13
+      stroke-width: 3
+    }
+  }
+  plat: {
+    style: {
+      stroke: "#5F6368"
+      font-color: "#3C4043"
+      font-size: 13
+    }
+  }
+}
+
+title: "Pixel canvas on Google Cloud: request flow, event flow and IAM boundaries" {
+  near: top-center
+  shape: text
+  style.font-size: 28
+  style.bold: true
+}
+
+# ---------------------------------------------------------------------------
+# Outside Google Cloud
+# ---------------------------------------------------------------------------
+
+discord: "Discord\nslash commands, OAuth2,\nActivity (iframe)" {
+  shape: cloud
+}
+
+browser: "Web app / Discord Activity\n(browser)" {
+  shape: person
+}
+
+github: "GitHub\nActions workflows, repository" {
+  shape: cloud
+}
+
+# ---------------------------------------------------------------------------
+# One Google Cloud project per environment (dev, prd): same Terraform, same diagram
+# ---------------------------------------------------------------------------
+
+gcp: "Google Cloud project (dev and prd: same code, two projects)" {
+  style.fill: "#FFFFFF"
+  style.stroke: "#1A73E8"
+  style.stroke-width: 3
+  style.border-radius: 12
+
+  # ---- 1. Public entry points: nothing else is reachable from the internet ----
+  entry: "1. Public entry (HTTPS only)" {
+    class: layer
+
+    lb: "Cloud Load Balancing + Cloud CDN\nglobal external HTTPS, TLS 1.2+\nmanaged certificate, :80 redirects to :443" {
+      icon: ./icons/Networking-512-color-rgb.svg
+    }
+    front: "Cloud Storage: frontend\nprivate bucket (public access prevented)\nread only by the load balancer agent" {
+      icon: ./icons/Cloud_Storage-512-color.svg
+    }
+    gw: "API Gateway: pixel-canvas\nchecks the session JWT (iss, aud, exp)\nsigns a Google ID token per backend\nSA api-gateway" {
+      icon: ./icons/IntegrationServices-512-color.svg
+    }
+  }
+
+  # ---- 2. Proxies: validate, authenticate, publish. No business logic ----
+  proxies: "2. Proxies (Cloud Functions, invoker = the gateway only)" {
+    class: layer
+
+    dproxy: "SA fn-discord-proxy" {
+      class: sa
+      fn: "discord-proxy\nverifies the Ed25519 signature,\ndefers the answer" {
+        icon: ./icons/ServerlessComputing-512-color.svg
+      }
+      perm: "secretAccessor: discord-public-key\npublisher on discord.command only" {
+        class: perm
+      }
+    }
+    auth: "SA fn-auth-discord" {
+      class: sa
+      fn: "auth-discord\nOAuth2 code -> session JWT\nsigned by this very service account" {
+        icon: ./icons/ServerlessComputing-512-color.svg
+      }
+      perm: "secretAccessor: discord-oauth-client-secret\ntokenCreator on itself (signs the JWT)" {
+        class: perm
+      }
+    }
+    health: "SA fn-health" {
+      class: sa
+      fn: "health\nliveness for the deploy smoke test" {
+        icon: ./icons/ServerlessComputing-512-color.svg
+      }
+      perm: "logWriter, traceAgent only" {
+        class: perm
+      }
+    }
+    gwstub: "SA fn-gateway-stub" {
+      class: sa
+      fn: "gateway-stub\nanswers 501 on routes\nnot delivered yet" {
+        icon: ./icons/ServerlessComputing-512-color.svg
+      }
+      perm: "logWriter, traceAgent only" {
+        class: perm
+      }
+    }
+    drawp: "SA fn-draw-proxy (#128)" {
+      class: sa_planned
+      fn: "draw-proxy\nPOST /pixels: validates the batch" {
+        icon: ./icons/ServerlessComputing-512-color.svg
+      }
+      perm: "publisher on pixel.draw only" {
+        class: perm
+      }
+    }
+    reader: "SA fn-pixel-reader (#128)" {
+      class: sa_planned
+      fn: "pixel-reader\nGET /pixels/{x}/{y}" {
+        icon: ./icons/ServerlessComputing-512-color.svg
+      }
+      perm: "datastore.viewer (read only)" {
+        class: perm
+      }
+    }
+  }
+
+  # ---- 3. Broker: Pub/Sub, one topic per event type, one DLQ per topic ----
+  broker: "3. Broker (Pub/Sub, retention 7 days, 5 attempts then DLQ)" {
+    class: layer
+
+    tcmd: "discord.command\nsubscription ack 60 s" {
+      icon: ./icons/DataAnalytics-512-color.svg
+    }
+    tdraw: "pixel.draw\nsubscription ack 30 s" {
+      icon: ./icons/DataAnalytics-512-color.svg
+    }
+    tproc: "pixel.processed\nsubscription ack 30 s" {
+      icon: ./icons/DataAnalytics-512-color.svg
+    }
+    tsnapreq: "snapshot.requested\nsubscription ack 300 s" {
+      icon: ./icons/DataAnalytics-512-color.svg
+    }
+    tsnapready: "snapshot.ready (#129)\nGCS object notification" {
+      class: planned
+      icon: ./icons/DataAnalytics-512-color.svg
+    }
+  }
+
+  dlq: "Dead-letter topics: <topic>.dlq and <topic>.dlq.sub\none per topic, retention 14 days, replayed by hand" {
+    icon: ./icons/DataAnalytics-512-color.svg
+  }
+
+  # ---- 4. Workers: only Pub/Sub can call them ----
+  workers: "4. Workers (Cloud Functions, ingress internal, invoker = its own push SA)" {
+    class: layer
+
+    cmdw: "SA fn-command-worker (#126)" {
+      class: sa_planned
+      fn: "command-worker\nruns the slash commands,\nadmin check, follow-up message" {
+        icon: ./icons/ServerlessComputing-512-color.svg
+      }
+      perm: "datastore.user\npublisher on pixel.draw, pixel.processed, snapshot.requested\ninvoker: push-command-worker" {
+        class: perm
+      }
+    }
+    draww: "SA fn-draw-worker (#127)" {
+      class: sa_planned
+      fn: "draw-worker\npause, rate limit, idempotent write\n(processedBatches)" {
+        icon: ./icons/ServerlessComputing-512-color.svg
+      }
+      perm: "datastore.user\npublisher on pixel.processed\ninvoker: push-draw-worker" {
+        class: perm
+      }
+    }
+    snapw: "SA fn-snapshot-worker (#129)" {
+      class: sa_planned
+      fn: "snapshot-worker\nrenders the canvas to a PNG" {
+        icon: ./icons/ServerlessComputing-512-color.svg
+      }
+      perm: "datastore.viewer\nobjectCreator on the snapshots bucket\ninvoker: push-snapshot-worker" {
+        class: perm
+      }
+    }
+    notif: "SA fn-snapshot-notifier (#129)" {
+      class: sa_planned
+      fn: "snapshot-notifier\nsigns a short-lived URL,\nposts it in Discord" {
+        icon: ./icons/ServerlessComputing-512-color.svg
+      }
+      perm: "objectViewer on the snapshots bucket\ntokenCreator on itself (V4 signed URL)\ninvoker: push-snapshot-notifier" {
+        class: perm
+      }
+    }
+    tilew: "SA of the tile worker and tile reader (#68, names to be defined)" {
+      class: sa_planned
+      fn: "tile rasters (#68)\nrenders 256x256 PNG tiles from the pixels,\nserved by a tile reader (open question A)" {
+        icon: ./icons/ServerlessComputing-512-color.svg
+      }
+      perm: "objects of the tiles bucket only\n(design not merged: provisional)" {
+        class: perm
+      }
+    }
+  }
+
+  # ---- 5. Data: private, written by workers only ----
+  data: "5. Data (private, no public bucket)" {
+    class: layer
+
+    fs: "Firestore (native mode)\npixels, session, users, userEvents, processedBatches\nsecurity rules: the browser can read, never write\nTTL on expireAt, point-in-time recovery in prd" {
+      icon: ./icons/Databases-512-color.svg
+    }
+    snaps: "Cloud Storage: snapshots\nprivate, versioned, 90 days in prd" {
+      icon: ./icons/Cloud_Storage-512-color.svg
+    }
+    tiles: "Cloud Storage: tiles\nprivate, 256x256 PNG rasters\n(empty until #68)" {
+      icon: ./icons/Cloud_Storage-512-color.svg
+    }
+  }
+
+  # ---- Platform services shared by every function ----
+  shared: "Platform services" {
+    class: layer
+
+    sm: "Secret Manager\ndiscord-public-key, discord-oauth-client-secret,\ndiscord-bot-token (read by the deploy account only)\nread through each function's own SA" {
+      icon: ./icons/SecurityIdentity-512-color.svg
+    }
+    logs: "Cloud Logging\nJSON logs with correlation_id\nlogWriter on every function SA" {
+      icon: ./icons/Observability-512-color.svg
+    }
+    mon: "Cloud Monitoring: dashboard and\nlog-based metrics (#130)\nCloud Trace: end-to-end traces (#131)" {
+      class: planned
+      icon: ./icons/Observability-512-color.svg
+    }
+    budget: "Billing budget + e-mail alerts\n(infra/billing)" {
+      icon: ./icons/Observability-512-color.svg
+    }
+    build: "Build chain: bucket functions-source ->\nCloud Build (SA fn-build) -> Artifact Registry\nbuild-only permissions, no runtime role" {
+      icon: ./icons/DevOps-512-color.svg
+    }
+    eventarc: "Eventarc: API enabled, no trigger on purpose\n(a trigger would bypass the retry policy and the DLQ;\nthe bucket event goes through a GCS notification)" {
+      style.stroke-dash: 2
+      style.font-color: "#5F6368"
+      icon: ./icons/IntegrationServices-512-color.svg
+    }
+  }
+
+  # ---- Foundation: VPC and CI runners. The functions do NOT run inside the VPC ----
+  foundation: "Foundation (infra/foundation, infra/access)" {
+    class: layer
+
+    vpc: "VPC huiledecloud-<env>-vpc\nsubnet main 10.x.1.0/24, subnet runners 10.x.2.0/24\nfirewall: deny all ingress, flow logs, private Google access\n(no serverless connector: the functions stay outside)" {
+      icon: ./icons/Networking-512-color-rgb.svg
+    }
+    nat: "Cloud Router + Cloud NAT\nrunners subnet, outbound only\n(dev)" {
+      icon: ./icons/Networking-512-color-rgb.svg
+    }
+    gke: "GKE private cluster: runners (dev only)\nspot node pool with autoscaling\nnodes run as SA runners-nodes, Workload Identity on" {
+      icon: ./icons/GKE-512-color.svg
+    }
+    arc: "Actions Runner Controller (Helm)\nnamespaces arc-systems and arc-runners\nNetworkPolicy: no ingress, internet-only egress" {
+      icon: ./icons/GKE-512-color.svg
+    }
+    wif: "Workload Identity Federation\npool github, OIDC provider, attribute condition\n(repository, owner, GitHub Environment)\n-> SA gha-deploy (apply) and gha-plan (read only)" {
+      icon: ./icons/SecurityIdentity-512-color.svg
+    }
+    tf: "Terraform stacks run by gha-deploy:\nfoundation, serverless, access, billing\n(creates every resource of this diagram)" {
+      icon: ./icons/DevOps-512-color.svg
+    }
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Legend
+# ---------------------------------------------------------------------------
+
+legend: "Legend" {
+  near: bottom-center
+  style.fill: "#FFFFFF"
+  style.stroke: "#9AA0A6"
+
+  live: "Deployed (Terraform on dev)" {
+    style.fill: "#FFFFFF"
+  }
+  planned: "Planned: pull request open,\nnot merged yet" {
+    class: planned
+  }
+  iam: "IAM boundary:\none service account per function" {
+    class: sa
+  }
+  req: "Request flow (blue)\nHTTPS, OIDC, Pub/Sub publish" {
+    shape: text
+    style.font-color: "#174EA6"
+  }
+  evt: "Event flow (green)\nPub/Sub push, gRPC writes" {
+    shape: text
+    style.font-color: "#0D652D"
+  }
+  rt: "Real-time channel (red)\nFirestore listeners" {
+    shape: text
+    style.font-color: "#A50E0E"
+  }
+  plat: "Platform (grey)\nsecrets, logs, CI" {
+    shape: text
+    style.font-color: "#3C4043"
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Flows. Every arrow label starts with the protocol.
+# ---------------------------------------------------------------------------
+
+# Request flow: Discord / web -> gateway -> proxies -> broker (one direction)
+browser -> gcp.entry.lb: "HTTPS GET\nstatic app" { class: req }
+gcp.entry.lb -> gcp.entry.front: "HTTPS (backend bucket)\nCDN cache" { class: req }
+discord -> gcp.entry.gw: "HTTPS POST /discord/interactions\nEd25519 signature in the headers" { class: req }
+browser -> gcp.entry.gw: "HTTPS /auth/discord, /pixels\nBearer session JWT" { class: req }
+gcp.entry.gw -> gcp.proxies: "HTTPS + OIDC ID token of SA api-gateway\n(run.invoker, only caller allowed)" { class: req }
+gcp.proxies.dproxy -> gcp.broker.tcmd: "gRPC publish\n(roles/pubsub.publisher on this topic)" { class: req }
+gcp.proxies.drawp -> gcp.broker.tdraw: "gRPC publish" {
+  class: req
+  style.stroke-dash: 4
+}
+discord <- gcp.proxies.auth: "HTTPS OAuth2 code exchange" { class: req }
+gcp.proxies.reader -> gcp.data.fs: "gRPC read (datastore.viewer)" {
+  class: req
+  style.stroke-dash: 4
+}
+
+# Event flow: broker -> workers -> storage
+gcp.broker.tcmd -> gcp.workers.cmdw: "Pub/Sub push, HTTPS + OIDC\n(SA push-command-worker)" {
+  class: evt
+  style.stroke-dash: 4
+}
+gcp.broker.tdraw -> gcp.workers.draww: "Pub/Sub push, HTTPS + OIDC\n(SA push-draw-worker)" {
+  class: evt
+  style.stroke-dash: 4
+}
+gcp.broker.tsnapreq -> gcp.workers.snapw: "Pub/Sub push, HTTPS + OIDC\n(SA push-snapshot-worker)" {
+  class: evt
+  style.stroke-dash: 4
+}
+gcp.broker.tsnapready -> gcp.workers.notif: "Pub/Sub push, HTTPS + OIDC\n(SA push-snapshot-notifier)" {
+  class: evt
+  style.stroke-dash: 4
+}
+gcp.broker.tproc -> gcp.workers.tilew: "Pub/Sub push, HTTPS + OIDC" {
+  class: evt
+  style.stroke-dash: 4
+}
+gcp.broker -> gcp.dlq: "after 5 failed deliveries\n(backoff 10 s to 600 s)" { class: evt }
+
+gcp.broker.tdraw <- gcp.workers.cmdw: "gRPC publish" {
+  class: evt
+  style.stroke-dash: 4
+}
+gcp.broker.tsnapreq <- gcp.workers.cmdw: "gRPC publish" {
+  class: evt
+  style.stroke-dash: 4
+}
+gcp.broker.tproc <- gcp.workers.draww: "gRPC publish\n(batch applied)" {
+  class: evt
+  style.stroke-dash: 4
+}
+gcp.workers.cmdw -> gcp.data.fs: "gRPC write (datastore.user)" {
+  class: evt
+  style.stroke-dash: 4
+}
+gcp.workers.draww -> gcp.data.fs: "gRPC write, transaction\n(datastore.user)" {
+  class: evt
+  style.stroke-dash: 4
+}
+gcp.workers.snapw <- gcp.data.fs: "gRPC read (datastore.viewer)" {
+  class: evt
+  style.stroke-dash: 4
+}
+gcp.workers.snapw -> gcp.data.snaps: "HTTPS write PNG\n(objectCreator)" {
+  class: evt
+  style.stroke-dash: 4
+}
+gcp.broker.tsnapready <- gcp.data.snaps: "GCS notification\nOBJECT_FINALIZE" {
+  class: evt
+  style.stroke-dash: 4
+}
+gcp.workers.notif <- gcp.data.snaps: "HTTPS read (objectViewer)" {
+  class: evt
+  style.stroke-dash: 4
+}
+gcp.workers.tilew -> gcp.data.tiles: "HTTPS write / read\n(this bucket only)" {
+  class: evt
+  style.stroke-dash: 4
+}
+discord <- gcp.workers.cmdw: "HTTPS webhook follow-up\n(interaction token)" {
+  class: evt
+  style.stroke-dash: 4
+}
+discord <- gcp.workers.notif: "HTTPS webhook follow-up\n(signed snapshot URL)" {
+  class: evt
+  style.stroke-dash: 4
+}
+
+# Real-time path back to the front
+browser <- gcp.data.fs: "Firestore listeners over HTTPS (WebChannel)\nFirebase custom token minted by auth-discord\nread-only security rules" { class: rt }
+browser <- gcp.proxies.auth: "HTTPS response: session JWT\n(+ Firebase custom token, off by default)" { class: rt }
+
+# Platform
+gcp.proxies.dproxy -> gcp.shared.sm: "secret env var\n(secretAccessor on its secret)" { class: plat }
+gcp.proxies.auth -> gcp.shared.sm: "secret env var\n(secretAccessor on its secret)" { class: plat }
+gcp.proxies -> gcp.shared.logs: "stdout JSON\n(logWriter)" { class: plat }
+gcp.workers -> gcp.shared.logs: "stdout JSON\n(logWriter)" {
+  class: plat
+  style.stroke-dash: 4
+}
+
+# CI plane
+github -> gcp.foundation.wif: "HTTPS OIDC token of the workflow" { class: plat }
+gcp.foundation.wif -> gcp.foundation.tf: "short-lived token\nof SA gha-deploy" { class: plat }
+gcp.foundation.arc -> gcp.foundation.nat: "outbound only" { class: plat }
+github <- gcp.foundation.nat: "HTTPS (runners poll GitHub)" { class: plat }
+gcp.foundation.gke -> gcp.foundation.arc: "runs" { class: plat }
+gcp.foundation.vpc -> gcp.foundation.gke: "runners subnet" { class: plat }
