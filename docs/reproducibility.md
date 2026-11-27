@@ -17,6 +17,7 @@ created on their behalf, then runs `scripts/check-leftovers.sh`, which fails the
 | Budget alerts | `infra/billing` | Must watch the bill even while nothing runs | free |
 | Global address `frontend` | `infra/access` (`persistent.tf`) | The dev URL `<ip>.sslip.io`, its certificate and the Discord OAuth2 redirect URIs derive from it: a new IP would mean editing `dev.tfvars` and the Discord portal by hand | about 7 USD/month while unattached |
 | Secret containers `discord-*` | `infra/access` (`persistent.tf`) | Their values are added by hand and never stored in Git or in a state; destroyed, they would be lost and the next apply would fail (a function cannot start on a secret with no version) | free (Secret Manager: 6 active versions free) |
+| Secret containers `arc-github-app-*` (dev) | `infra/access` (`persistent.tf`) | GitHub App of the runners: External Secrets copies them into the new cluster at every apply, so the runners come back with no `kubectl create secret` (#54) | free (3 more active versions) |
 
 APIs are never disabled (`disable_on_destroy = false`) and the `default` VPC created with the project is left alone:
 both are free.
@@ -26,6 +27,7 @@ both are free.
 | Leak | Effect | Fix |
 | --- | --- | --- |
 | Discord secret values destroyed with `infra/serverless` | Next apply fails: `auth-discord` cannot start on an empty secret | Containers moved to `infra/access`; `infra/serverless` reads them (data sources) and gave them up with a `removed` block (`destroy = false`) |
+| Runners GitHub App secret created by hand in the cluster | Deleted with the namespace: runners stayed offline until someone ran `kubectl create secret` | Values in Secret Manager (`infra/access`), synced by External Secrets through Workload Identity (#54, [self-hosted-runners.md](ci/self-hosted-runners.md)) |
 | Frontend IP released by the destroy | New sslip.io host: `dev.tfvars` and the Discord portal had to be edited by hand | Address moved to `infra/access`, same name, so the IP does not change |
 | `gcf-v2-sources-<number>-<region>` (and `gcf-v2-uploads-*`) buckets | Created by Cloud Functions 2nd gen outside Terraform, left after a destroy | Removed by a step of `destroy.yml` |
 
@@ -91,8 +93,6 @@ team before starting.
 
 Outside GCP, so out of Terraform's reach:
 
-- **Runners GitHub App secret**: the `arc-github-app` Kubernetes secret is created by hand in the new cluster
-  ([self-hosted-runners.md](ci/self-hosted-runners.md), Install §4). Issue #54 moves it to Secret Manager.
 - **API Gateway host**: a new gateway gets a new `*.gateway.dev` host. Update the Discord Activity URL mapping `/api`
   and, once `discord-proxy` is on, the Interactions Endpoint URL (`terraform output discord_interactions_url`).
 - **Data**: the dev Firestore database and buckets start empty (dev is disposable; prd has delete protection and

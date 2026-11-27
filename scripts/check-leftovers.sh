@@ -6,7 +6,7 @@
 #
 # Expected after a destroy, and not reported: the state bucket (*-tfstate) and
 # what infra/access keeps on purpose (persistent.tf: the "frontend" global
-# address and the Discord secret containers). IAM, APIs and the default VPC
+# address and the Discord and runner GitHub App secret containers). IAM, APIs and the default VPC
 # are free and are not listed.
 #
 # Uses one `gcloud ... list` per kind rather than Cloud Asset Inventory, whose
@@ -20,7 +20,7 @@ set -uo pipefail
 PROJECT="${1:?project id required}"
 KEEP_ADDRESSES='^frontend$'
 KEEP_BUCKETS='-tfstate$'
-KEEP_SECRETS='^(discord-public-key|discord-bot-token|discord-oauth-client-secret)$'
+KEEP_SECRETS='^(discord-public-key|discord-bot-token|discord-oauth-client-secret|arc-github-app-id|arc-github-app-installation-id|arc-github-app-private-key)$'
 
 leftovers=0
 errors=0
