@@ -1,7 +1,12 @@
 # Frontend — Pixel Canvas
 
 Canvas 100 000 × 100 000 temps réel (≈ 153 000 tuiles de 256×256, chargées à la demande), utilisable en web et en Discord Activity.
-Vite + TypeScript, rendu Canvas 2D, aucune dépendance runtime.
+Vite + TypeScript, rendu Canvas 2D. Une seule dépendance runtime : le SDK Discord, chargé à la demande dans une Activity
+(le SDK Firebase s'y ajoute avec l'adaptateur GCP, PR #139).
+
+Documentation de la piste front : [docs/frontend.md](../../docs/frontend.md) (architecture et choix de conception),
+[docs/frontend-security.md](../../docs/frontend-security.md) (ce qui est public et pourquoi),
+[docs/open-source-frontend.md](../../docs/open-source-frontend.md) (chaque dépendance justifiée).
 
 ## Commandes
 
