@@ -139,3 +139,18 @@ resource "google_artifact_registry_repository_iam_member" "functions_build" {
   role       = "roles/artifactregistry.writer"
   member     = google_service_account.functions_build.member
 }
+
+# IAM is eventually consistent: on a fresh environment (first deploy, or after
+# a destroy that removed fn-build), a build started right after the grants is
+# refused ("Access to bucket gcf-v2-sources-... denied") and the function is
+# left FAILED. The functions depend on this pause instead of the grants. It
+# only waits when a grant is created or replaced, not on every apply.
+resource "time_sleep" "functions_build_iam" {
+  create_duration = "90s"
+
+  triggers = {
+    logs     = google_project_iam_member.functions_build_logs.id
+    sources  = google_project_iam_member.functions_build_sources.id
+    registry = google_artifact_registry_repository_iam_member.functions_build.id
+  }
+}

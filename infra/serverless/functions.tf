@@ -24,9 +24,7 @@ module "health" {
 
   depends_on = [
     google_service_account.gateway,
-    google_project_iam_member.functions_build_logs,
-    google_project_iam_member.functions_build_sources,
-    google_artifact_registry_repository_iam_member.functions_build,
+    time_sleep.functions_build_iam,
   ]
 }
 
@@ -67,8 +65,6 @@ module "discord_proxy" {
 
   depends_on = [
     google_service_account.gateway,
-    google_project_iam_member.functions_build_logs,
-    google_project_iam_member.functions_build_sources,
-    google_artifact_registry_repository_iam_member.functions_build,
+    time_sleep.functions_build_iam,
   ]
 }
