@@ -56,7 +56,7 @@ resource "google_cloudfunctions2_function" "this" {
     all_traffic_on_latest_revision   = true
     available_memory                 = var.memory
     available_cpu                    = var.cpu
-    max_instance_request_concurrency = var.max_request_concurrency
+    max_instance_request_concurrency = var.concurrency
     timeout_seconds                  = var.timeout_seconds
     min_instance_count               = var.min_instances
     max_instance_count               = var.max_instances

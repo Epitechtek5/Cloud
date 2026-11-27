@@ -56,8 +56,8 @@ module "tile_renderer" {
   # renders). With one request per instance (the default) the other pushes find every
   # instance busy and get a 429, which Pub/Sub counts as a failed delivery (review of #143, M5):
   # the requests mostly wait, so one instance serves several. Needs a full CPU.
-  cpu                     = "1"
-  max_request_concurrency = 8
+  cpu         = "1"
+  concurrency = 8
   # Spread over hot tiles, bounded for the budget.
   max_instances = 10
 

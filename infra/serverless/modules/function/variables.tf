@@ -109,26 +109,16 @@ variable "max_instances" {
 variable "cpu" {
   type        = string
   default     = null
-  description = "CPU of one instance (for example \"1\"); null keeps the platform default for the memory. Concurrency above 1 needs at least 1 CPU."
-
-  validation {
-    condition     = var.cpu == null || can(regex("^[0-9]+(\\.[0-9]+)?$", var.cpu))
-    error_message = "cpu must be a number written as a string, for example \"1\"."
-  }
+  description = "vCPUs of one instance (null: Cloud Run's default for the memory). At least \"1\" when concurrency > 1"
 }
 
-variable "max_request_concurrency" {
+variable "concurrency" {
   type        = number
-  default     = null
-  description = "Requests one instance handles at once; null keeps the platform default (1 for Cloud Functions 2nd gen). Raise it for a function whose requests mostly wait."
+  default     = 1
+  description = "Requests one instance handles at once. Above 1, an I/O-bound function (waiting on Firestore or Pub/Sub) absorbs a burst without returning 429"
 
   validation {
-    condition     = var.max_request_concurrency == null || (var.max_request_concurrency >= 1 && var.max_request_concurrency <= 1000 && floor(var.max_request_concurrency) == var.max_request_concurrency)
-    error_message = "max_request_concurrency must be an integer between 1 and 1000."
-  }
-
-  validation {
-    condition     = coalesce(var.max_request_concurrency, 1) == 1 || var.cpu != null
-    error_message = "A concurrency above 1 needs cpu set to at least \"1\"."
+    condition     = var.concurrency >= 1 && floor(var.concurrency) == var.concurrency
+    error_message = "concurrency must be a positive integer."
   }
 }
