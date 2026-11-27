@@ -251,6 +251,48 @@ test("helpers: ids of the active span, inject/extract, flush hook never throws",
   assert.equal(flushed, 1);
 });
 
+test("the SERVER span is exported before the response leaves, later spans when the handler returns", async () => {
+  exporter.reset();
+  const order = [];
+  setFlushHook(async () => order.push(`flush:${exporter.getFinishedSpans().map((s) => s.name).join(",")}`));
+  const r = {
+    statusCode: 0,
+    headers: {},
+    end(body) {
+      order.push(`end:${body}`);
+      return r;
+    },
+  };
+  await tracedHttp("POST /interactions", async (req, res) => {
+    res.statusCode = 200;
+    res.end("deferred");
+    await withSpan("after the answer", {}, async () => {});
+  })({ method: "POST", headers: { traceparent } }, r);
+  assert.deepEqual(order, ["flush:POST /interactions", "end:deferred", "flush:POST /interactions,after the answer"]);
+  assert.equal(r.end.name, "end");
+  const [server] = exporter.getFinishedSpans();
+  assert.equal(server.attributes["http.response.status_code"], 200);
+  setFlushHook(async () => {});
+});
+
+test("a handler that throws without answering still ends and exports its span", async () => {
+  exporter.reset();
+  let flushed = 0;
+  setFlushHook(async () => flushed++);
+  const r = { statusCode: 0, headers: {}, end: () => r };
+  const realEnd = r.end;
+  await assert.rejects(
+    tracedHttp("GET /boom", async () => {
+      throw new TypeError("boom");
+    })({ method: "GET", headers: {} }, r),
+    TypeError,
+  );
+  assert.equal(flushed, 1);
+  assert.equal(r.end, realEnd);
+  assert.equal(exporter.getFinishedSpans()[0].status.code, 2);
+  setFlushHook(async () => {});
+});
+
 test("entry points wait for the SDK start, and a failed start never blocks them", async () => {
   const { setTracingReady, tracingReady } = await import("../../src/lib/trace.js");
   let started = false;

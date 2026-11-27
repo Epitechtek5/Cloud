@@ -67,27 +67,53 @@ export function firestoreSpan(operation, fn) {
 
 /**
  * Wraps an HTTP entry point in a SERVER span, child of the caller's trace
- * (traceparent or X-Cloud-Trace-Context sent by the gateway / Cloud Run), and
- * exports the spans once the handler is done.
+ * (traceparent or X-Cloud-Trace-Context sent by the gateway / Cloud Run).
+ *
+ * The span is ended and exported BEFORE the response leaves: `res.end` (which
+ * Express's send/json/redirect all go through) is held until the flush is
+ * done. With request-only CPU (the Cloud Run default) an instance gets no CPU
+ * once its response is sent, so a flush after it would stay frozen until the
+ * next request, or be lost if the instance stops first. Spans that end after
+ * the response (work the handler does once it answered) are flushed when the
+ * handler returns, best effort.
  */
 export function tracedHttp(name, handler) {
   return async function traced(req, res) {
     await ready;
-    await withSpan(
-      name,
-      {
-        kind: SpanKind.SERVER,
-        parent: extractContext(req.headers),
-        attributes: { "http.request.method": req.method },
-      },
-      async (span) => {
-        await handler(req, res);
+    const parent = extractContext(req.headers);
+    const span = tracer().startSpan(name, { kind: SpanKind.SERVER, attributes: { "http.request.method": req.method } }, parent);
+    let finished;
+    const finish = () =>
+      (finished ??= (async () => {
         if (res.statusCode) span.setAttribute("http.response.status_code", res.statusCode);
         const correlationId = res.get?.("X-Correlation-Id") ?? res.headers?.["X-Correlation-Id"];
         if (correlationId) span.setAttribute("correlation_id", correlationId);
-      },
-    );
-    await flushSpans();
+        if (res.statusCode >= 500) span.setStatus({ code: SpanStatusCode.ERROR });
+        span.end();
+        await flushSpans();
+      })());
+
+    const realEnd = typeof res.end === "function" ? res.end : null;
+    let sent;
+    if (realEnd)
+      res.end = function heldEnd(...args) {
+        res.end = realEnd;
+        sent = finish().then(() => realEnd.apply(res, args));
+        return res;
+      };
+
+    try {
+      await context.with(trace.setSpan(parent, span), () => handler(req, res));
+    } catch (err) {
+      span.recordException(err);
+      span.setStatus({ code: SpanStatusCode.ERROR, message: err?.name });
+      throw err;
+    } finally {
+      if (finished) await flushSpans(); // spans ended after the response
+      else await finish(); // no response through res.end (or none at all)
+      if (realEnd && !sent) res.end = realEnd; // never answered: let the runtime use the real end
+      await sent;
+    }
   };
 }
 
