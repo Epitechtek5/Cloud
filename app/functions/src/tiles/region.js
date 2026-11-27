@@ -1,8 +1,8 @@
 // /get from the tile rasters (#68): the painted pixels of a square region of
 // the grid, with the same contract as `readRegion` of lib/canvas.js (which
-// reads every pixel document of each tile) but from `raster + new pixels`
-// (current.js). A tile that was painted a lot costs one PNG and a few new
-// documents instead of up to 65 536 reads.
+// reads at most `MAX_REGION_READS` pixel documents) but from `raster + new
+// pixels` (current.js). A tile that was painted a lot costs one PNG and a few new
+// documents, and the region is never truncated.
 import { tilesOfRect } from "../lib/grid.js";
 import { mapLimit } from "./bucket.js";
 import { currentTile } from "./current.js";
@@ -13,7 +13,7 @@ import { colorAt, parseTile, pixelOffset, TILE_SIZE } from "./raster.js";
  * @param {{ read: Function }} deps.bucket  src/tiles/bucket.js
  * @param {Function} deps.readPixels  current.js `readTilePixels`, bound to Firestore
  * @param {number} [deps.concurrency]
- * @returns {(region: { x0: number, y0: number, size: number, clearedAt?: number }) => Promise<Array<{ x: number, y: number, c: number }>>}
+ * @returns {(region: { x0: number, y0: number, size: number, clearedAt?: number }) => Promise<{ pixels: Array<{ x: number, y: number, c: number }>, truncated: boolean }>}
  */
 export function createRasterRegionReader({ bucket, readPixels, concurrency = 9 }) {
   return async function readRegion({ x0, y0, size, clearedAt = 0 }) {
@@ -23,7 +23,7 @@ export function createRasterRegionReader({ bucket, readPixels, concurrency = 9 }
       const { rgba } = await currentTile({ bucket, readPixels, tx, ty, clearedAt });
       return regionPixels(rgba, tx, ty, { x0, y0, size });
     });
-    return perTile.flat();
+    return { pixels: perTile.flat(), truncated: false };
   };
 }
 
