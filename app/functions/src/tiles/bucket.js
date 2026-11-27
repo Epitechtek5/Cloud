@@ -1,10 +1,11 @@
-// The private `tiles` bucket: one PNG per tile, `{tx}/{ty}.png`.
+// The private `tiles` bucket: one PNG per tile, `tiles/{tx}/{ty}.png`, served
+// to the browser by the front's load balancer and CDN (backend bucket, tiles.tf).
 //
 // Writes are compare-and-set on the object generation: two renderers of the
 // same tile (a lease that expired under a slow one) cannot overwrite each
 // other's work, the loser gets a TileConflictError and starts over from what
 // the winner wrote.
-import { emptyRaster, decodeRaster, encodeRaster, tileName, VERSION_METADATA } from "./raster.js";
+import { emptyRaster, decodeRaster, encodeRaster, TILE_PREFIX, tileName, VERSION_METADATA } from "./raster.js";
 import { PngError } from "../lib/pngDecode.js";
 
 export class TileConflictError extends Error {
@@ -34,8 +35,11 @@ export async function mapLimit(items, limit, fn) {
 
 /**
  * @param {import("@google-cloud/storage").Bucket} bucket
+ * @param {object} [options]
+ * @param {number} [options.cacheMaxAgeSeconds]  Cache-Control of the rasters, followed by the CDN
  */
-export function createTileBucket(bucket) {
+export function createTileBucket(bucket, { cacheMaxAgeSeconds = 60 } = {}) {
+  const cacheControl = `public, max-age=${cacheMaxAgeSeconds}`;
   return {
     /**
      * Raster of a tile, or null when the tile was never rendered (or erased).
@@ -75,7 +79,7 @@ export function createTileBucket(bucket) {
         await bucket.file(tileName(tx, ty)).save(encodeRaster(rgba, version), {
           resumable: false,
           contentType: "image/png",
-          metadata: { metadata: { [VERSION_METADATA]: String(version) } },
+          metadata: { cacheControl, metadata: { [VERSION_METADATA]: String(version) } },
           preconditionOpts: { ifGenerationMatch: generation ?? 0 },
         });
       } catch (err) {
@@ -102,7 +106,7 @@ export function createTileBucket(bucket) {
      */
     async deleteStale(clearedAt, { concurrency = 16 } = {}) {
       const stale = [];
-      for await (const file of bucket.getFilesStream()) {
+      for await (const file of bucket.getFilesStream({ prefix: TILE_PREFIX })) {
         const version = Number(file.metadata?.metadata?.[VERSION_METADATA]);
         // No readable version: not one of ours, or written by an older renderer; erase it, it is rebuilt on the next draw.
         if (!Number.isFinite(version) || version <= clearedAt) stale.push({ name: file.name, generation: Number(file.metadata.generation) });

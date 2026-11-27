@@ -41,8 +41,8 @@ export function fakeStorageBucket() {
         },
       };
     },
-    async *getFilesStream() {
-      for (const [name, o] of [...objects]) yield { name, metadata: { ...o.meta, name, generation: String(o.generation) } };
+    async *getFilesStream({ prefix = "" } = {}) {
+      for (const [name, o] of [...objects]) if (name.startsWith(prefix)) yield { name, metadata: { ...o.meta, name, generation: String(o.generation) } };
     },
   };
   return bucket;

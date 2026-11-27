@@ -24,15 +24,9 @@ export function loadRendererConfig(env = process.env) {
     concurrency: intIn(env, "RENDER_CONCURRENCY", 1, 32, 8),
     // How long a renderer owns a tile without checking in (a dead one is replaced after that).
     leaseMs: intIn(env, "RENDER_LEASE_MS", 1000, 300_000, 25_000),
-  };
-}
-
-export function loadReaderConfig(env = process.env) {
-  return {
-    bucket: tilesBucketName(env),
-    // docs/frontend-contract.md §2: `Cache-Control: public, max-age=60`.
-    maxAgeSeconds: intIn(env, "TILE_MAX_AGE_SECONDS", 0, 3600, 60),
-    // A 404 is cached shorter: a tile painted for the first time should not look empty for long.
-    missingMaxAgeSeconds: intIn(env, "TILE_MISSING_MAX_AGE_SECONDS", 0, 3600, 30),
+    // Cache-Control of each raster object, which the CDN in front of the bucket follows
+    // (docs/frontend-contract.md §2): a regenerated raster shows up within this delay,
+    // the real-time deltas of the front cover the rest.
+    cacheMaxAgeSeconds: intIn(env, "TILE_MAX_AGE_SECONDS", 0, 3600, 60),
   };
 }

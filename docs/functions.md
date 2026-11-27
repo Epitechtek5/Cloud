@@ -155,7 +155,7 @@ lifetime) and `test/emulator/snapshotStore.test.js`. Live: `scripts/test-snapsho
 
 ```
 draw worker --pixel.processed--> tile-renderer --PNG 256x256 + version--> bucket <project>-tiles (private)
-browser --HTTPS--> LB + Cloud CDN --/tiles/{tx}/{ty}.png--> tile-reader --reads--> bucket
+browser --HTTPS--> LB + Cloud CDN --/tiles/{tx}/{ty}.png--> backend bucket --> bucket (object tiles/{tx}/{ty}.png)
 /get --> command worker --readRegion--> rasters (+ pixels newer than each raster)
 ```
 
@@ -170,11 +170,13 @@ browser --HTTPS--> LB + Cloud CDN --/tiles/{tx}/{ty}.png--> tile-reader --reads-
 - **Version** (`raster.js`): `floor(ms)` of the newest pixel `t` in the raster, stored as the `Tile-Version` `tEXt` chunk of the
   PNG (the image and its version are one object) and as object metadata `tile-version` (listable without downloading).
   Rounding down only ever repeats a pixel on the front, rounding up would lose some.
-- **Tile reader** (`reader.js`): `GET|HEAD /tiles/{tx}/{ty}.png`, `200 image/png` + `X-Tile-Version` +
-  `Cache-Control: public, max-age=60` (`TILE_MAX_AGE_SECONDS`); `404` with `X-Tile-Version: 0` for a tile never painted or
-  erased (`max-age=30`); `503` (never cached) when storage or `session/state` cannot be read. It refuses a raster whose
-  version is `<= clearedAt` (read from `session/state`, cached 5 s per instance). Optional CORS from `ALLOWED_ORIGINS`
-  (unused behind the load balancer: same origin).
+- **Delivery** (no function, `infra/serverless/tiles.tf`): the front's load balancer reads the private bucket through a backend bucket
+  with Cloud CDN, like the app files. Objects are named `tiles/{tx}/{ty}.png`, the request path; the renderer sets
+  `Cache-Control: public, max-age=60` (`TILE_MAX_AGE_SECONDS`) on each one, and the CDN follows it. A tile never painted or erased
+  has no object: `404`, an empty tile for the front. The front reads the version inside the PNG and ignores a raster not newer
+  than the last clear (a CDN copy can outlive the clear by its max-age).
+- **Clear during a render** (`renderer.js`): the session is read again after the pixels; if `clearedAt` moved in between, the render
+  starts over, otherwise erased pixels could be stored with a version newer than the clear (found by the security review of #143).
 - **`/get`** (`region.js`): `createRasterRegionReader` has the contract of `readRegion` of `canvas.js` (`{ x0, y0, size, clearedAt }`
   to `[{ x, y, c }]`) but reads one raster plus the new pixels per tile: at most 9 tiles for 512 x 512 not aligned on the
   grid, instead of up to ~590 000 pixel documents. `index.js` plugs it into the command store when `TILES_BUCKET` is set
@@ -183,15 +185,15 @@ browser --HTTPS--> LB + Cloud CDN --/tiles/{tx}/{ty}.png--> tile-reader --reads-
   grid where the web app opens, scaled to at least 512 px, unpainted pixels white. A whole-grid view would be an overview
   (contract, question D, not delivered): `/snapshot` shows the painted area.
 - **Identities**: `fn-tile-renderer`: `datastore.user` (project, no per-collection IAM in Firestore) and `storage.objectUser` on the
-  tiles bucket; `fn-tile-reader`: `datastore.viewer` and `storage.objectViewer` on the tiles bucket; the command worker gets
-  `storage.objectViewer` on the tiles bucket. `fn-tile-reader` is invokable by `allUsers` but only reachable through the
-  load balancer (ingress), see `infra/serverless/README.md`, "Tile rasters".
+  tiles bucket; the command worker gets `storage.objectViewer` on the tiles bucket; the load balancer's service agent gets
+  `storage.objectViewer` on the tiles bucket (delivery). No function is reachable from the internet for the tiles, see
+  `infra/serverless/README.md`, "Tile rasters".
 - **PNG without a dependency**: `lib/pngDecode.js` is the counterpart of `lib/png.js` (8-bit RGB/RGBA, no interlace, the five
   filters, CRC checked, output size bounded), about 130 lines on `node:zlib`. It only reads rasters this platform wrote, so a library
   (`pngjs`: pure JavaScript, but one more dependency to audit, for a format the encoder already fixes) was not worth it.
 
 Tests: `test/tiles` (tile and offset arithmetic, decoder and filters, version = floor of the newest `t`, raster + delta,
 clear, bucket preconditions, coalescing of a burst of 60 messages into a few renders without losing a pixel, leader
-loop and lease takeover, reader headers and 404/503, `/get` from rasters over 9 tiles) and `test/emulator/tiles.test.js`
+loop and lease takeover, clear during a render, Cache-Control of the objects, `/get` from rasters over 9 tiles) and `test/emulator/tiles.test.js`
 (the delta query and the lease transactions against the Firestore emulator).
 

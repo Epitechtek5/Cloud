@@ -42,7 +42,7 @@ test("a render writes the raster with the version of the newest pixel, then find
   const tile = await w.deps.bucket.read(0, 0);
   assert.equal(tile.version, 7_000);
   assert.equal(colorAt(tile.rgba, pixelOffset(3, 4)), COLOR);
-  assert.equal(w.storage.objects.get("0/0.png").meta.metadata["tile-version"], "7000");
+  assert.equal(w.storage.objects.get("tiles/0/0.png").meta.metadata["tile-version"], "7000");
 
   assert.equal(await renderTile(w.deps, 0, 0), "unchanged");
   assert.equal(w.storage.calls.save, 1);
@@ -62,7 +62,7 @@ test("after a clear, a raster with nothing left is deleted, and one repainted is
   w.px.paint({ x: 260, y: 1, c: 3, t: 3000 });
 
   assert.equal(await renderTile(w.deps, 0, 0), "deleted");
-  assert.equal(w.storage.objects.has("0/0.png"), false);
+  assert.equal(w.storage.objects.has("tiles/0/0.png"), false);
   assert.equal(await renderTile(w.deps, 1, 0), "written");
   const tile = await w.deps.bucket.read(1, 0);
   assert.equal(tile.version, 3000);
@@ -89,6 +89,31 @@ test("a write lost to a concurrent renderer is redone from the winner's raster, 
   };
   w.px.paint({ x: 2, y: 2, c: 2, t: 9000 });
   await assert.rejects(renderTile(w.deps, 0, 0), /changed by someone else/);
+});
+
+test("an /admin clear committed during a render is never baked into the raster", async () => {
+  // Review of #143 (I1): the session is read before the clear, the pixels after it
+  // and after a new pixel. Without a second look at the session, the raster would
+  // mix erased pixels with a version newer than the clear, and keep them for good.
+  const w = world({ pixels: [{ x: 1, y: 1, c: 1, t: 1000 }] });
+  await renderTile(w.deps, 0, 0);
+  w.px.paint({ x: 2, y: 2, c: 2, t: 1500 }); // painted before the clear
+  let raced = false;
+  w.deps.readPixels = async (query) => {
+    if (!raced) {
+      raced = true;
+      w.session.clearedAt = 2000;
+      w.px.paint({ x: 3, y: 3, c: 3, t: 2500 }); // painted after the clear
+    }
+    return w.px.read(query);
+  };
+
+  assert.equal(await renderTile(w.deps, 0, 0), "written");
+  const tile = await w.deps.bucket.read(0, 0);
+  assert.equal(tile.version, 2500);
+  assert.equal(colorAt(tile.rgba, pixelOffset(1, 1)), -1, "erased before the clear");
+  assert.equal(colorAt(tile.rgba, pixelOffset(2, 2)), -1, "erased before the clear");
+  assert.equal(colorAt(tile.rgba, pixelOffset(3, 3)), 3);
 });
 
 // --- the leader loop ---------------------------------------------------------
@@ -189,7 +214,7 @@ test("a pixel.processed batch gets the raster of every tile it touches, then 204
   const w = world({ pixels: [{ x: 1, y: 1, c: 1, t: 1000 }, { x: 300, y: 1, c: 2, t: 1000 }, { x: 5, y: 600, c: 3, t: 1000 }] });
   const { send, logs } = worker(w);
   assert.equal(await send(processed("b1", w.px.docs)), 204);
-  assert.deepEqual([...w.storage.objects.keys()].sort(), ["0/0.png", "0/2.png", "1/0.png"]);
+  assert.deepEqual([...w.storage.objects.keys()].sort(), ["tiles/0/0.png", "tiles/0/2.png", "tiles/1/0.png"]);
   const line = logs.find((l) => l.message === "tiles synchronised");
   assert.deepEqual([line.tiles, line.led, line.renders, line.failed], [3, 3, 3, 0]);
 });
@@ -228,7 +253,7 @@ test("a failing tile fails the message (retried) after the others were rendered"
   w.deps.readPixels = async (q) => (q.tx === 1 ? Promise.reject(new Error("boom")) : read(q));
   const { send, logs } = worker(w);
   assert.equal(await send(processed("b3", w.px.docs)), 500);
-  assert.ok(w.storage.objects.has("0/0.png"), "the healthy tile is rendered anyway");
+  assert.ok(w.storage.objects.has("tiles/0/0.png"), "the healthy tile is rendered anyway");
   assert.equal(logs.find((l) => l.message === "tiles synchronised").failed, 1);
   assert.ok(logs.some((l) => l.message === "tile not rendered, the message will be retried"));
 });
@@ -246,7 +271,7 @@ test("/admin clear sweeps the rasters rendered before it and renders nothing els
   w.session.clearedAt = 2000;
   const { send, logs } = worker(w);
   assert.equal(await send({ batchId: "clear-1", userId: "123456789012345678", cleared: true, pixels: [] }), 204);
-  assert.deepEqual([...w.storage.objects.keys()], ["1/0.png"], "the newer raster stays");
+  assert.deepEqual([...w.storage.objects.keys()], ["tiles/1/0.png"], "the newer raster stays");
   assert.equal(logs.find((l) => l.message === "rasters erased after a clear").erased, 1);
 });
 

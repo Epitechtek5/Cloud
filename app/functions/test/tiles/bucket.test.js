@@ -19,8 +19,9 @@ test("write then read gives the raster, its version and its generation", async (
   const tiles = createTileBucket(storage);
   await tiles.write(2, 3, raster(), 1234);
 
-  const object = storage.objects.get("2/3.png");
+  const object = storage.objects.get("tiles/2/3.png");
   assert.equal(object.meta.contentType, "image/png");
+  assert.equal(object.meta.cacheControl, "public, max-age=60", "followed by the CDN in front of the bucket");
   assert.equal(object.meta.metadata["tile-version"], "1234", "also listable as object metadata");
   assert.equal(rasterVersion(object.data), 1234, "and inside the PNG, atomically with the bytes");
 
@@ -55,7 +56,7 @@ test("a storage failure other than a precondition is not hidden", async () => {
   await assert.rejects(tiles.read(0, 0), /boom/);
   await assert.rejects(tiles.remove(0, 0, { generation: 1 }), /boom/);
   storage.getFilesStream = async function* () {
-    yield { name: "0/0.png", metadata: { generation: "1", metadata: { "tile-version": "1" } } };
+    yield { name: "tiles/0/0.png", metadata: { generation: "1", metadata: { "tile-version": "1" } } };
   };
   await assert.rejects(tiles.deleteStale(5), /boom/);
 });
@@ -87,7 +88,7 @@ test("a download failure is not hidden either", async () => {
 test("an unreadable raster reads as blank with version 0, so that it is rebuilt and overwritten", async () => {
   const storage = fakeStorageBucket();
   const tiles = createTileBucket(storage);
-  await storage.file("1/1.png").save(Buffer.from("garbage"), { metadata: {} });
+  await storage.file("tiles/1/1.png").save(Buffer.from("garbage"), { metadata: {} });
   const read = await tiles.read(1, 1);
   assert.equal(read.version, 0);
   assert.equal(read.rgba.every((b) => b === 0), true);
@@ -103,10 +104,10 @@ test("remove deletes the raster only if nobody rewrote it, and is idempotent", a
 
   await tiles.write(0, 0, raster(), 2, { generation });
   await tiles.remove(0, 0, { generation }); // stale generation: the newer raster stays
-  assert.ok(storage.objects.has("0/0.png"));
+  assert.ok(storage.objects.has("tiles/0/0.png"));
 
   await tiles.remove(0, 0, { generation: (await tiles.read(0, 0)).generation });
-  assert.equal(storage.objects.has("0/0.png"), false);
+  assert.equal(storage.objects.has("tiles/0/0.png"), false);
   await tiles.remove(0, 0, { generation }); // already gone: nothing to do
 });
 
@@ -116,11 +117,12 @@ test("deleteStale erases the rasters rendered before the clear and keeps the new
   await tiles.write(0, 0, raster(), 100); // before the clear
   await tiles.write(0, 1, raster(), 200); // exactly at the clear: erased too
   await tiles.write(1, 0, raster(), 201); // after
-  await storage.file("9/9.png").save(Buffer.from("x"), { metadata: {} }); // no version: not trustworthy
+  await storage.file("tiles/9/9.png").save(Buffer.from("x"), { metadata: {} }); // no version: not trustworthy
+  await storage.file("overview.png").save(Buffer.from("x"), { metadata: {} }); // not a tile: left alone
 
   const erased = await tiles.deleteStale(200);
   assert.equal(erased, 3);
-  assert.deepEqual([...storage.objects.keys()], ["1/0.png"]);
+  assert.deepEqual([...storage.objects.keys()], ["tiles/1/0.png", "overview.png"]);
 });
 
 test("deleteStale does not erase a raster that was rewritten after the listing", async () => {
@@ -131,7 +133,7 @@ test("deleteStale does not erase a raster that was rewritten after the listing",
   storage.getFilesStream = async function* () {
     yield* list();
     // A fresh render lands right after the listing.
-    await tiles.write(0, 0, raster(), 500, { generation: storage.objects.get("0/0.png").generation });
+    await tiles.write(0, 0, raster(), 500, { generation: storage.objects.get("tiles/0/0.png").generation });
   };
   await tiles.deleteStale(200);
   assert.equal((await tiles.read(0, 0)).version, 500);
@@ -150,4 +152,10 @@ test("mapLimit runs at most `limit` tasks at once and keeps the order of the res
   assert.deepEqual(results, [10, 20, 30, 40, 50, 60]);
   assert.equal(peak, 2);
   assert.deepEqual(await mapLimit([], 4, async () => 1), []);
+});
+
+test("the cache lifetime of the rasters is configurable", async () => {
+  const storage = fakeStorageBucket();
+  await createTileBucket(storage, { cacheMaxAgeSeconds: 5 }).write(0, 0, raster(), 1);
+  assert.equal(storage.objects.get("tiles/0/0.png").meta.cacheControl, "public, max-age=5");
 });

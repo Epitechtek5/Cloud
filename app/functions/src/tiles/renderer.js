@@ -36,6 +36,12 @@ export async function renderTile({ bucket, readSession, readPixels }, tx, ty) {
   for (let attempt = 0; ; attempt++) {
     const { clearedAt } = await readSession();
     const current = await currentTile({ bucket, readPixels, tx, ty, clearedAt });
+    // An /admin clear committed between the two reads above: the pixels may mix
+    // erased ones (filtered with the old clearedAt) and newer ones, so the raster
+    // would carry a version after the clear and show erased pixels for good.
+    // Read again. A clear committed after this check is harmless: every pixel
+    // read is then older than it, so is the version, and the raster is ignored.
+    if ((await readSession()).clearedAt !== clearedAt) continue;
     if (current.upToDate) return "unchanged";
     try {
       if (current.blank) {

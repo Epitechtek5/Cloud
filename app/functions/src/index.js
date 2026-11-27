@@ -19,9 +19,8 @@ import { createSnapshotNotifier, createStorageSigner } from "./snapshot/notifier
 import { createSnapshotBucket, readVisiblePixels } from "./snapshot/store.js";
 import { createSnapshotWorker } from "./snapshot/worker.js";
 import { createTileBucket } from "./tiles/bucket.js";
-import { loadReaderConfig, loadRendererConfig } from "./tiles/config.js";
+import { loadRendererConfig } from "./tiles/config.js";
 import { readTilePixels } from "./tiles/current.js";
-import { cacheClearedAt, createTileReader } from "./tiles/reader.js";
 import { createRasterRegionReader } from "./tiles/region.js";
 import { createTileRenderer } from "./tiles/renderer.js";
 import { createTileState } from "./tiles/state.js";
@@ -150,7 +149,7 @@ export function tileRenderer(req, res) {
         const db = await getFirestore();
         return {
           state: createTileState(db, { leaseMs: config.leaseMs }),
-          bucket: createTileBucket((await getStorage()).bucket(config.bucket)),
+          bucket: createTileBucket((await getStorage()).bucket(config.bucket), { cacheMaxAgeSeconds: config.cacheMaxAgeSeconds }),
           readSession: () => readSession(db),
           readPixels: (query) => readTilePixels(db, query),
         };
@@ -158,19 +157,4 @@ export function tileRenderer(req, res) {
     });
   }
   return tileRendererHandler(req, res);
-}
-
-// GET /tiles/{tx}/{ty}.png (#68), behind the front's load balancer and CDN.
-let tileReaderHandler;
-export function tileReader(req, res) {
-  if (!tileReaderHandler) {
-    const config = loadReaderConfig();
-    tileReaderHandler = createTileReader({
-      config,
-      getBucket: async () => (await getStorage()).bucket(config.bucket),
-      getClearedAt: cacheClearedAt(async () => (await readSession(await getFirestore())).clearedAt),
-      origins: parseOrigins(process.env.ALLOWED_ORIGINS),
-    });
-  }
-  return tileReaderHandler(req, res);
 }

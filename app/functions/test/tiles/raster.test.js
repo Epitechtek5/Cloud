@@ -45,7 +45,7 @@ test("tilesOfPixels lists each touched tile once", () => {
 });
 
 test("tile names and ids", () => {
-  assert.equal(tileName(3, 17), "3/17.png");
+  assert.equal(tileName(3, 17), "tiles/3/17.png");
   assert.equal(tileId(3, 17), "3_17");
   assert.deepEqual(parseTile("3_17"), { tx: 3, ty: 17 });
   assert.equal(inTileGrid(0, 0), true);

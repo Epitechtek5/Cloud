@@ -18,9 +18,13 @@ export const VERSION_KEY = "Tile-Version";
 // The same value as custom metadata of the object, to list or sweep without downloading.
 export const VERSION_METADATA = "tile-version";
 
-/** Object name of a tile in the bucket: `{tx}/{ty}.png`, the path the front requests. */
+// The load balancer maps the request path to the object name as is (backend
+// bucket): `GET /tiles/3/4.png` reads the object `tiles/3/4.png`.
+export const TILE_PREFIX = "tiles/";
+
+/** Object name of a tile in the bucket: `tiles/{tx}/{ty}.png`, the path the front requests. */
 export function tileName(tx, ty) {
-  return `${tx}/${ty}.png`;
+  return `${TILE_PREFIX}${tx}/${ty}.png`;
 }
 
 /** `tx_ty` (the `tile` field of the pixel documents) to numbers. */

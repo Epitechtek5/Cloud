@@ -54,7 +54,7 @@ Alternative : 512x512 (4 fois moins de listeners, rasters plus lourds). À valid
 
 Pour chaque tuile visible, le front :
 
-1. télécharge le raster et lit sa version `v` (`X-Tile-Version`, le `t` du pixel le plus récent qu'il contient) ;
+1. télécharge le raster et lit sa version `v` (chunk `Tile-Version` du PNG, le `t` du pixel le plus récent qu'il contient) ;
 2. ouvre un listener Firestore `pixels where tile == "tx_ty" and t > v orderBy t limit 65536`.
 
 Le premier résultat ne contient que les pixels plus récents que le raster, puis chaque écriture arrive en **delta** (temps
@@ -119,8 +119,10 @@ stocké dans le bucket `tiles`. Le raster porte sa version ; les deltas comblent
   déclenché par un message contient toujours ses pixels.
 - **Après un effacement** : `pixel.processed { cleared: true }` fait supprimer les rasters dont la version est `<= clearedAt`
   (les seuls périmés, un raster rendu après l'effacement a une version plus récente) ; un rendu qui trouve un raster périmé
-  repart d'une tuile vide avec `t > clearedAt`. Le `tile-reader` refuse en plus de servir un raster `<= clearedAt` (un balayage
-  en retard, ou une rafale entre les deux, ne réaffiche jamais l'ancienne grille). Aucune des ~153 000 tuiles n'est re-rendue.
+  repart d'une tuile vide avec `t > clearedAt`. Un rendu relit `session/state` après les pixels et recommence si `clearedAt` a
+  bougé entre les deux, sinon il pourrait écrire des pixels effacés avec une version postérieure au clear. Le front ignore en plus
+  un raster `<= clearedAt` (copie CDN ou balayage en retard) : l'ancienne grille ne revient jamais. Aucune des ~153 000 tuiles
+  n'est re-rendue.
 
 Une tuile très active n'a ainsi qu'un rendu en cours à la fois, et une tuile calme n'est jamais refaite pour rien. Le
 navigateur n'en dépend pas pour être à jour (il a les deltas) : la fraîcheur des rasters ne joue que sur le coût du

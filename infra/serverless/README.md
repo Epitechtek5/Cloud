@@ -23,7 +23,7 @@ of each environment: `scripts/bootstrap-state-bucket.sh` creates it (already don
 | `firestore.tf` | Firestore database, composite indexes, TTL and index overrides, security rules release |
 | `firestore.rules` | Browser security rules: read-only, own documents only (tests in `tests/firestore-rules`) |
 | `storage.tf` | Private `tiles` and `snapshots` buckets |
-| `tiles.tf` | Tile rasters (#68): `tile-renderer` (pixel.processed) and `tile-reader` (behind the front's CDN), serverless NEG and CDN backend service |
+| `tiles.tf` | Tile rasters (#68): `tile-renderer` (pixel.processed) and the backend bucket that serves the private tiles bucket behind the front's CDN |
 | `pubsub.tf` | Topics, consumer subscriptions and dead-letter topics (`modules/pubsub`, see `docs/pubsub.md`) |
 | `outputs.tf` | `app_url` (deploy smoke test contract) and ids reused by the other issues |
 
@@ -69,8 +69,8 @@ browser / Discord proxy ──HTTPS──> global external Application LB (manag
   this stack, so `destroy.yml` keeps it. The sslip.io host, the certificate domain, the Discord OAuth2 redirect and
   the Activity `/` mapping ([docs/discord-activity.md](../../docs/discord-activity.md) §1) stay the same after a
   destroy and redeploy ([docs/reproducibility.md](../../docs/reproducibility.md)).
-- **Tiles** (open question A, #68): `local.frontend_tiles_backend` is the backend service of `tiles.tf` (serverless NEG of
-  the `tile-reader`, ingress `internal-and-cloud-load-balancing`), so `/tiles/*` is served on the same origin and CDN. See
+- **Tiles** (open question A, #68): `local.frontend_tiles_backend` is the backend bucket of `tiles.tf` (the private tiles
+  bucket, read by the load balancer's service agent), so `/tiles/*` is served on the same origin and CDN. See
   "Tile rasters" below.
 - **API** (#60): `apiBase` is the URL of the API Gateway (`local.gateway_url`); `var.api_base_url` overrides it.
 
@@ -124,32 +124,29 @@ Google ID token with that account for every call (`jwt_audience` in the spec).
 ## Tile rasters
 
 ```
-pixel.processed --push--> tile-renderer --PNG + version--> bucket <project>-tiles (private)
-browser --HTTPS--> global load balancer + Cloud CDN --/tiles/*--> serverless NEG --> tile-reader --reads--> the bucket
+pixel.processed --push--> tile-renderer --PNG + version--> bucket <project>-tiles (private), objects tiles/{tx}/{ty}.png
+browser --HTTPS--> global load balancer + Cloud CDN --/tiles/*--> backend bucket --> the bucket
 ```
 
-Open question A ([frontend-contract.md](../../docs/frontend-contract.md) §6), decided in #68 as option 2 (**provisional**):
+Open question A ([frontend-contract.md](../../docs/frontend-contract.md) §6), decided in #68 after its security review:
 
+- **A backend bucket, like the app files.** The load balancer's service agent (`service-<number>@https-lb`) has
+  `objectViewer` on the tiles bucket only; the bucket stays private (`public_access_prevention = enforced`). No function is
+  reachable from the internet for the tiles: nothing to invoke with `allUsers`, nothing to exhaust with `max_instances`, no
+  Firestore access on the read path. The subject allows the load balancer for static files, and the rasters are static files.
+- **What a function would have added, done otherwise.** The version is inside the PNG (`tEXt` chunk `Tile-Version`), read by the
+  front; a missing object is a native `404` (`objectViewer` includes `list`, so not a `403`); `Cache-Control` is object metadata
+  set by the renderer; a raster older than the last `/admin clear` is ignored by the front (`version <= clearedAt`).
 - **Why not the gateway.** It has no cache (about 150 tiles per page open would each wake a function), it requires the session
-  JWT that the front does not send for tiles, and its URL is another origin (CORS). The CDN in front of the app is already there.
-- **Why not signed URLs.** One more round trip per tile, and a URL to sign per tile.
-- **Why not a backend bucket straight on the tiles bucket** (as for the front's files, no function at all). It cannot send the
-  `X-Tile-Version` header the front reads, nor a `404` for a tile never painted.
-- **What protects the reader.** The bucket stays private (`public_access_prevention = enforced`); `fn-tile-reader` is its
-  only reader, with `objectViewer` on that bucket. The function has ingress `ALLOW_INTERNAL_AND_GCLB`: its `run.app` URL answers
-  `403` from the internet, only the load balancer reaches it. `allUsers` is `run.invoker` because a serverless NEG does not sign
-  its requests, so IAM cannot tell the load balancer from anyone else: the ingress is the lock, not IAM. This is the one function
-  with `allUsers`; it only serves read-only `GET` of a tile PNG, validated against the 391 x 391 grid.
-  **To validate with the team**: the subject asks for the API Gateway for public entry points, with the load balancer allowed for
-  static files; the rasters are static files, but served by a function.
-- **Cache.** `USE_ORIGIN_HEADERS`: 60 s for a raster, 30 s for a `404` (also negative caching of the backend service), the query
-  string is not part of the cache key. A regenerated raster shows within a minute; the front's deltas cover the gap.
-- **Cost and limits.** Both functions have `max_instances = 10`. The renderer holds one instance per active tile for the length
-  of a burst (at most 20 s per message, then the message is retried).
-- **Roles.** No project role is added: `datastore.user` (renderer) and `datastore.viewer` (reader) are already in
-  `DEPLOY_GRANTABLE_ROLES`, bucket roles are on the bucket.
-- **Not verifiable without a deploy**: that the project allows `allUsers` on Cloud Run (an organization policy
-  `iam.allowedPolicyMemberDomains` would refuse it), the serverless NEG route and the CDN caching of `404`s.
+  JWT that the front does not send for tiles, and its URL is another origin (CORS).
+- **Why not a tile-reader function behind the CDN** (the first version of #68). A serverless NEG does not sign its requests, so
+  the function needed `allUsers` as invoker with the ingress as the only lock, and `datastore.viewer` to check the clear.
+- **Cache.** `USE_ORIGIN_HEADERS`: 60 s for a raster (`TILE_MAX_AGE_SECONDS` of the renderer). A regenerated raster shows within
+  a minute; the front's deltas cover the gap.
+- **Roles.** No project role is added: `datastore.user` (renderer) is already in `DEPLOY_GRANTABLE_ROLES`, bucket roles are on
+  the bucket.
+- **Not verifiable without a deploy**: the `/tiles/` route to the backend bucket, the status of a missing object through the
+  load balancer (`404` expected) and whether the CDN keeps that `404`.
 
 ## Adding a function
 

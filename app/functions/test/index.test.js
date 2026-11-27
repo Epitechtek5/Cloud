@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { commandWorker, tileReader, tileRenderer, snapshotNotifier, snapshotWorker, discordProxy, drawProxy, drawWorker, pixelReader, hello, notImplemented } from "../src/index.js";
+import { commandWorker, tileRenderer, snapshotNotifier, snapshotWorker, discordProxy, drawProxy, drawWorker, pixelReader, hello, notImplemented } from "../src/index.js";
 
 test("hello answers 200", () => {
   let status;
@@ -75,7 +75,7 @@ test("exports the snapshot functions; the worker refuses to start without its bu
   assert.throws(() => snapshotWorker({ method: "POST", headers: {} }, res), /SNAPSHOTS_BUCKET/);
 });
 
-test("exports the tile functions; both need their bucket, then only answer what they handle", async () => {
+test("exports the tile renderer; it needs its bucket, then only answers what it handles", async () => {
   const res = { headers: {} };
   res.set = (k, v) => ((res.headers[k] = v), res);
   res.status = (code) => ((res.status_ = code), res);
@@ -83,12 +83,9 @@ test("exports the tile functions; both need their bucket, then only answer what 
   res.json = (body) => ((res.body = body), res);
   delete process.env.TILES_BUCKET;
   assert.throws(() => tileRenderer({ method: "POST", headers: {} }, res), /TILES_BUCKET/);
-  assert.throws(() => tileReader({ method: "GET", headers: {} }, res), /TILES_BUCKET/);
   process.env.TILES_BUCKET = "test-tiles";
   try {
     await tileRenderer({ method: "GET", headers: {} }, res);
-    assert.equal(res.status_, 405);
-    await tileReader({ method: "DELETE", headers: {}, get: () => undefined }, res);
     assert.equal(res.status_, 405);
   } finally {
     delete process.env.TILES_BUCKET;

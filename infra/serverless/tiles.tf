@@ -2,13 +2,14 @@
 # pixel.processed and served from a private bucket.
 #
 #   draw worker --pixel.processed--> tile-renderer --PNG--> bucket <project>-tiles (private)
-#   browser --HTTPS--> load balancer + Cloud CDN --/tiles/*--> tile-reader --reads--> the bucket
+#   browser --HTTPS--> load balancer + Cloud CDN --/tiles/*--> backend bucket --> the bucket
 #   /get (command worker) reads the same rasters, see command_worker.tf
 #
 # Question A of docs/frontend-contract.md (how to serve rasters from a private
-# bucket) is settled here as option 2: a tile-reader function behind the
-# front's load balancer, on the same origin and CDN as the app. README.md,
-# section "Tile rasters", gives the reasoning. Code: app/functions/src/tiles.
+# bucket) is settled here: the front's load balancer reads the bucket through a
+# backend bucket, exactly like the app files (frontend.tf). No function is
+# reachable from the internet for it. README.md, section "Tile rasters", gives
+# the reasoning. Code: app/functions/src/tiles.
 
 # --- tile-renderer: pixel.processed -> rasters --------------------------------
 
@@ -38,6 +39,8 @@ module "tile_renderer" {
 
   environment_variables = {
     TILES_BUCKET = google_storage_bucket.tiles.name
+    # Cache-Control of each raster, followed by the CDN (docs/frontend-contract.md section 2).
+    TILE_MAX_AGE_SECONDS = "60"
     # One render per tile per 1.5 s while a burst lasts; 20 s of work per message.
     RENDER_MIN_INTERVAL_MS = "1500"
     RENDER_BUDGET_MS       = "20000"
@@ -76,112 +79,46 @@ resource "google_storage_bucket_iam_member" "tile_renderer" {
   member = "serviceAccount:${module.tile_renderer.service_account_email}"
 }
 
-# --- tile-reader: GET /tiles/{tx}/{ty}.png ------------------------------------
+# --- delivery: GET /tiles/{tx}/{ty}.png ---------------------------------------
 
-# The only reader of the bucket for the browser. Behind the front's load
-# balancer, not the API Gateway (open question A, option 2):
-# - ingress ALLOW_INTERNAL_AND_GCLB: its run.app URL answers 403 to the internet,
-#   only the load balancer reaches it;
-# - allUsers as invoker, because a serverless NEG does not sign its requests
-#   (IAM cannot tell the load balancer from anyone else), so the ingress is the
-#   lock. It serves one thing: a read-only GET of a tile PNG of a canvas that is
-#   public to every Discord member anyway, validated against the 391 x 391 grid;
-# - the CDN absorbs the traffic (max-age 60), max_instances bounds the cost.
-module "tile_reader" {
-  source = "./modules/function"
-
-  project_id  = var.project_id
-  region      = var.region
-  name        = "tile-reader"
-  description = "GET /tiles/{tx}/{ty}.png: serves the tile rasters of the private bucket behind the front's CDN"
-  runtime     = var.functions_runtime
-  entry_point = "tileReader"
-
-  source_bucket            = google_storage_bucket.functions_source.name
-  source_object            = google_storage_bucket_object.functions_source.name
-  docker_repository        = google_artifact_registry_repository.functions.id
-  build_service_account_id = google_service_account.functions_build.id
-
-  environment_variables = {
-    TILES_BUCKET = google_storage_bucket.tiles.name
-  }
-
-  ingress         = "ALLOW_INTERNAL_AND_GCLB"
-  invokers        = ["allUsers"]
-  timeout_seconds = 10
-  max_instances   = 10
-
-  depends_on = [
-    google_project_iam_member.functions_build_logs,
-    google_project_iam_member.functions_build_sources,
-    google_artifact_registry_repository_iam_member.functions_build,
-  ]
-}
-
-# Reads session/state only (a raster older than the last /admin clear is never served).
-resource "google_project_iam_member" "tile_reader_firestore" {
-  project = var.project_id
-  role    = "roles/datastore.viewer"
-  member  = "serviceAccount:${module.tile_reader.service_account_email}"
-}
-
-# Reads rasters of the tiles bucket only.
-resource "google_storage_bucket_iam_member" "tile_reader" {
-  bucket = google_storage_bucket.tiles.name
-  role   = "roles/storage.objectViewer"
-  member = "serviceAccount:${module.tile_reader.service_account_email}"
-}
-
-# The load balancer reaches the function through a serverless NEG and a backend
-# service with Cloud CDN. frontend.tf adds the /tiles/ route to the URL map.
-resource "google_compute_region_network_endpoint_group" "tile_reader" {
-  project               = var.project_id
-  name                  = "tile-reader"
-  region                = var.region
-  network_endpoint_type = "SERVERLESS"
-
-  cloud_run {
-    service = module.tile_reader.service_name
-  }
-}
-
-# USE_ORIGIN_HEADERS: the CDN follows the function's Cache-Control (60 s for a
-# raster, 30 s for a missing tile), so a regenerated raster shows up within a
-# minute and the deltas of the front cover the rest.
-resource "google_compute_backend_service" "tile_reader" {
-  project               = var.project_id
-  name                  = "tile-reader"
-  description           = "Tile rasters: serverless NEG of tile-reader behind Cloud CDN"
-  load_balancing_scheme = "EXTERNAL_MANAGED"
-  enable_cdn            = true
+# The load balancer maps the path to the object name: /tiles/3/4.png reads the
+# object tiles/3/4.png (the renderer writes under tiles/). A missing object is a
+# 404, which the front reads as an empty tile. The version of a raster is inside
+# the PNG (tEXt chunk Tile-Version), so no function has to add a header.
+#
+# USE_ORIGIN_HEADERS: the CDN follows the Cache-Control the renderer sets on
+# each object (TILE_MAX_AGE_SECONDS, 60 s), so a regenerated raster shows up
+# within a minute and the real-time deltas of the front cover the rest. A raster
+# cached from before an /admin clear is ignored by the front (version <= clearedAt).
+resource "google_compute_backend_bucket" "tiles" {
+  project     = var.project_id
+  name        = "tiles"
+  description = "Tile rasters, private bucket behind Cloud CDN"
+  bucket_name = google_storage_bucket.tiles.name
+  enable_cdn  = true
 
   cdn_policy {
-    cache_mode       = "USE_ORIGIN_HEADERS"
-    negative_caching = true
-
-    # The path alone identifies a tile: a query string (cache busting) must not bypass the cache.
-    cache_key_policy {
-      include_host         = true
-      include_protocol     = true
-      include_query_string = false
-    }
-
-    negative_caching_policy {
-      code = 404
-      ttl  = 30
-    }
+    cache_mode = "USE_ORIGIN_HEADERS"
   }
 
-  backend {
-    group = google_compute_region_network_endpoint_group.tile_reader.id
-  }
-
-  log_config {
-    enable      = true
-    sample_rate = 0.1
-  }
+  # Same origin as the app (no CORS); the PNG is never sniffed as something else.
+  custom_response_headers = [
+    "Strict-Transport-Security: max-age=31536000",
+    "X-Content-Type-Options: nosniff",
+  ]
 
   depends_on = [google_project_service.this]
+}
+
+# Private bucket access: the load balancer reads the bucket as its service agent
+# (the one of frontend.tf). objectViewer includes list, so a missing tile is a
+# 404 and not a 403.
+resource "google_storage_bucket_iam_member" "tiles_lb_reader" {
+  bucket = google_storage_bucket.tiles.name
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:service-${google_storage_bucket.tiles.project_number}@https-lb.iam.gserviceaccount.com"
+
+  depends_on = [google_compute_backend_bucket.tiles]
 }
 
 output "tile_renderer_uri" {
