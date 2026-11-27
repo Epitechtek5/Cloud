@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { Timestamp } from "@google-cloud/firestore";
 import { createCommandStore, MARKER_TTL_MS } from "../../src/commands/store.js";
 import { createCommandWorker } from "../../src/commands/worker.js";
-import { readSession } from "../../src/lib/canvas.js";
+import { readRegion, readSession } from "../../src/lib/canvas.js";
 import { createLogger } from "../../src/lib/logger.js";
 import { response } from "../discord/helpers.js";
 import { ADMIN_ROLE, command, config, fakeDiscord, fakePublisher, pushRequest } from "../commands/helpers.js";
@@ -89,10 +89,21 @@ test("/get reads only the region, and only pixels newer than the last clear", em
   const { db, store } = setup();
   const pixel = (x, y, c, t) => db.doc(`pixels/${x}_${y}`).set({ x, y, tile: `${Math.floor(x / 256)}_${Math.floor(y / 256)}`, c, a: "1", an: "a", t: Timestamp.fromMillis(t) });
   await Promise.all([pixel(10, 10, 0xff0000, 2000), pixel(300, 10, 0x00ff00, 2000), pixel(11, 10, 0x0000ff, 500), pixel(20, 20, 0x123456, 3000)]);
-  const pixels = await store.readRegion({ x0: 0, y0: 0, size: 16, clearedAt: 1000 });
+  const { pixels, truncated } = await store.readRegion({ x0: 0, y0: 0, size: 16, clearedAt: 1000 });
   assert.deepEqual(pixels, [{ x: 10, y: 10, c: 0xff0000 }]);
+  assert.equal(truncated, false);
   const wide = await store.readRegion({ x0: 0, y0: 0, size: 512, clearedAt: 0 });
-  assert.equal(wide.length, 4);
+  assert.equal(wide.pixels.length, 4);
+});
+
+test("/get reads at most maxReads documents and says the region is truncated", emulatorOnly, async () => {
+  const { db } = setup();
+  await Promise.all(
+    Array.from({ length: 6 }, (_, i) => db.doc(`pixels/${i}_0`).set({ x: i, y: 0, tile: "0_0", c: i, a: "1", an: "a", t: Timestamp.fromMillis(1000 + i) })),
+  );
+  const { pixels, truncated } = await readRegion(db, { x0: 0, y0: 0, size: 16, clearedAt: 0, maxReads: 4 });
+  assert.equal(pixels.length, 4);
+  assert.equal(truncated, true);
 });
 
 test("snapshot is published once and recorded", emulatorOnly, async () => {
