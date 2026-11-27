@@ -82,7 +82,12 @@ export const SCHEMAS = Object.freeze({
     requestId: str({ pattern: ID }),
     requestedBy: str({ pattern: SNOWFLAKE }),
     reason: oneOf(["command", "schedule"]),
+    // Epoch ms of the request, stable across redeliveries (from the
+    // interaction id): the snapshot object name is derived from it.
+    requestedAt: int({ min: 0, optional: true }),
     interaction: object(interaction.fields, { optional: true }),
+    // Channel of the /snapshot command, where the notifier posts the link.
+    channelId: str({ pattern: SNOWFLAKE, optional: true }),
   }),
 });
 

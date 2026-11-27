@@ -28,8 +28,8 @@ module "pubsub" {
 | Topic | Published by | Consumer | ack deadline | Max attempts |
 |---|---|---|---|---|
 | `discord.command` | Discord proxy | command worker | 60 s | 5 |
-| `pixel.draw` | draw proxy | draw worker | 30 s | 5 |
-| `pixel.processed` | draw worker | real-time fan-out | 30 s | 5 |
+| `pixel.draw` | draw proxy, command worker (`/draw`) | draw worker | 30 s | 5 |
+| `pixel.processed` | draw worker, command worker (`/admin clear`) | real-time fan-out | 30 s | 5 |
 | `snapshot.requested` | command worker | snapshot worker | 300 s | 5 |
 
 `snapshot.ready` is the GCS object event of the snapshot bucket, not a Pub/Sub topic.
