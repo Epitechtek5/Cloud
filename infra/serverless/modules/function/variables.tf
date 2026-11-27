@@ -105,3 +105,20 @@ variable "max_instances" {
   default     = 3
   description = "Maximum instances, the cost ceiling of the function"
 }
+
+variable "cpu" {
+  type        = string
+  default     = null
+  description = "vCPUs of one instance (null: Cloud Run's default for the memory). At least \"1\" when concurrency > 1"
+}
+
+variable "concurrency" {
+  type        = number
+  default     = 1
+  description = "Requests one instance handles at once. Above 1, an I/O-bound function (waiting on Firestore or Pub/Sub) absorbs a burst without returning 429"
+
+  validation {
+    condition     = var.concurrency >= 1 && floor(var.concurrency) == var.concurrency
+    error_message = "concurrency must be a positive integer."
+  }
+}

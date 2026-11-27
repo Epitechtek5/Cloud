@@ -44,7 +44,8 @@ provider "kubernetes" {
 provider "helm" {
   # Releases are recorded in ConfigMaps instead of Secrets: the PR plan account
   # (roles/viewer) may read ConfigMaps but not Secrets. The values hold no
-  # credential (the GitHub App key stays in its own Secret).
+  # credential (the GitHub App key stays in Secret Manager and in the Secret
+  # External Secrets writes).
   helm_driver = "configmap"
 
   kubernetes = {

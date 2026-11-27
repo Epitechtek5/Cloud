@@ -43,6 +43,36 @@ in `<env>.tfvars` (off by default, see the bootstrap below):
 The gateway route is `POST /discord/interactions`, backend `module.discord_proxy.uri` (output `discord_proxy_uri`), **without** JWT
 authentication at the gateway (Discord does not send one): the signature check is the authentication.
 
+## Command worker (`app/functions/src/commands`, #64)
+
+Consumes `discord.command` (push subscription `discord.command.sub`, retry and DLQ of `docs/pubsub.md`), performs
+the command, then **edits the deferred response** (`PATCH /webhooks/{app_id}/{token}/messages/@original`). The
+interaction token authenticates that call: the worker needs no bot token and no secret.
+
+| Command | Effect | Answer |
+| --- | --- | --- |
+| `/draw x y color` | publishes `pixel.draw` (`batchId = discord-<interaction id>`, `source: discord`), the same pipeline as the web | by the **draw worker** (accepted, paused, rate limited) |
+| `/get [x] [y] [size]` | reads the square `size x size` (default 128, max 512) centred on `(x, y)` (default: the centre of the grid, where the web app opens) from Firestore, renders a PNG | the image as an attachment, plus a link to the web app |
+| `/snapshot` | publishes `snapshot.requested` (`requestId` = interaction id) | "requested", then the notifier edits it with the signed link (`docs/functions.md`, "Snapshot workflow") |
+| `/admin pause` / `resume` | `session/state.paused` | ephemeral confirmation |
+| `/admin clear` | moves the grid generation forward (`session/state.clearedAt`, `epoch`), publishes one `pixel.processed {cleared: true}` (strategy in `docs/data-model.md` §3) | ephemeral confirmation |
+| `/admin ratelimit user limit` | `users/{uid}.override` (pixels per minute, read by the draw worker) | ephemeral confirmation |
+
+- **Admin authorization in the worker.** `/admin *` requires a role id of
+  `discord_admin_role_ids` or a user id of `discord_admin_user_ids` (`<env>.tfvars`, see
+  `infra/serverless/command_worker.tf`). The Discord permission bitfield and `default_member_permissions` are
+  ignored: a guild admin can change them. Both lists empty: nobody is admin. A refusal is answered and changes
+  nothing (tested).
+- **Idempotent on redelivery.** Every state change runs in a Firestore transaction with the marker
+  `processedCommands/{interaction id}` (TTL 8 days, longer than the Pub/Sub retention); a redelivered command
+  finds it, changes nothing and resends the stored answer. `/draw` and `/snapshot` publish ids derived from the
+  interaction id, which their consumers deduplicate.
+- **Errors.** A broken message answers `400` (it ends in `discord.command.dlq`); a Firestore, Pub/Sub or
+  retryable Discord failure (429, 5xx) answers `500` and Pub/Sub retries; an expired interaction token (404) is
+  logged and acked.
+- **Identity** `fn-command-worker`: `roles/datastore.user`, publisher on `pixel.draw`, `pixel.processed` and
+  `snapshot.requested` only. Invoker: `push-command-worker` only (ingress internal).
+
 ## One Discord application per environment
 
 As for the Activity ([discord-activity.md](discord-activity.md)), dev and prd each have their own application.
@@ -71,8 +101,8 @@ Definitions versioned in [`app/functions/commands/commands.json`](../app/functio
 | Command | Options | First barrier (`default_member_permissions`) |
 | --- | --- | --- |
 | `/draw` | `x`, `y` (integers `0..99999`), `color` (`#RRGGBB`, `RRGGBB` or a palette name) | everyone |
-| `/get` | none | everyone |
-| `/snapshot` | none | Administrator |
+| `/get` | `x`, `y` (centre, optional), `size` (`16..512`, optional) | everyone |
+| `/snapshot` | none | everyone (subject 3.2: only `/admin` is admin-only) |
 | `/admin pause` / `resume` / `clear` | none | Administrator |
 | `/admin ratelimit` | `user` (Discord user), `limit` (pixels per minute, `0..1000`) | Administrator |
 
@@ -115,6 +145,10 @@ DISCORD_BOT_TOKEN="$(gcloud secrets versions access latest --secret=discord-bot-
 
 - Unit (`npm test` in `app/functions`): signature over the raw body (valid, tampered body/timestamp, foreign
   key, malformed headers, replay), PING, deferred ack, published event, publish and secret failures.
+- Command worker (`test/commands`): admin refusal for every admin command (nothing published, nothing written),
+  redelivery without side effect, `/draw` publishing, `/get` image, errors (`400` / `500` / expired token).
+  `test/emulator/commandStore.test.js` runs the same against the Firestore emulator (`npm run test:emulator`),
+  including two concurrent deliveries of `/admin clear` (one generation bump).
 - Commands (`test/commands`): the mandatory commands and options, grid bounds, admin barrier, idempotent
   registration against a fake Discord API (second run makes no `PUT`), token never printed, 429 retry.
 - Live, through the gateway: `scripts/test-discord-proxy.sh https://<gateway host>/discord/interactions`
