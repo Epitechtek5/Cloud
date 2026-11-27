@@ -46,7 +46,7 @@ export function fakeStore({ session = { paused: false, clearedAt: 0 }, pixels = 
     clear: async (id, info, reply) => once(id, info, () => (state.clears++, reply)),
     setRateLimit: async (id, info, uid, limit, reply) => once(id, info, () => ((state.users[uid] = limit), reply)),
     readSession: async () => state.session,
-    readRegion: async (region) => (state.regions.push(region), pixels),
+    readRegion: async (region) => (state.regions.push(region), { pixels, truncated: state.truncated === true }),
   };
 }
 

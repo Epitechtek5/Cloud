@@ -69,6 +69,15 @@ resource "google_storage_bucket_object" "functions_source" {
   name   = "functions-${local.functions_zip_md5}.zip"
   bucket = google_storage_bucket.functions_source.name
   source = local.functions_zip
+
+  # Explicit since the gateway no longer reads the function URLs (gateway.tf),
+  # which used to force it: the new archive exists before the functions move
+  # to it, and the old one goes last. The md5 name never collides. Without it,
+  # an apply that both replaces the archive and destroys an api config still
+  # depending on the functions in the state has a dependency cycle.
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 # Images built by Cloud Build for the functions, with a cleanup policy so old
@@ -138,4 +147,19 @@ resource "google_artifact_registry_repository_iam_member" "functions_build" {
   repository = google_artifact_registry_repository.functions.name
   role       = "roles/artifactregistry.writer"
   member     = google_service_account.functions_build.member
+}
+
+# IAM is eventually consistent: on a fresh environment (first deploy, or after
+# a destroy that removed fn-build), a build started right after the grants is
+# refused ("Access to bucket gcf-v2-sources-... denied") and the function is
+# left FAILED. The functions depend on this pause instead of the grants. It
+# only waits when a grant is created or replaced, not on every apply.
+resource "time_sleep" "functions_build_iam" {
+  create_duration = "90s"
+
+  triggers = {
+    logs     = google_project_iam_member.functions_build_logs.id
+    sources  = google_project_iam_member.functions_build_sources.id
+    registry = google_artifact_registry_repository_iam_member.functions_build.id
+  }
 }

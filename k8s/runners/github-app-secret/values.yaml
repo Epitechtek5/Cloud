@@ -1,0 +1,19 @@
+# Set by Terraform (infra/foundation/runners_secrets.tf). No credential here:
+# only names, the values stay in Secret Manager.
+
+# Kubernetes Secret read by the ARC scale set (githubConfigSecret).
+secretName: arc-github-app
+
+# Key in that Secret => Secret Manager secret id.
+keys: {}
+
+store:
+  projectID: ""
+  # KSA bound to the Google SA through Workload Identity.
+  serviceAccount: arc-secrets-reader
+  cluster:
+    name: ""
+    location: ""
+
+# How often the Secret is compared with the latest Secret Manager version.
+refreshInterval: 1h
