@@ -56,15 +56,24 @@ export function emptyRaster() {
   return new Uint8Array(TILE_SIZE * TILE_SIZE * 4);
 }
 
-/** Paints `{ x, y, c }` pixels (all inside the tile) into `rgba`; later ones win. */
+/**
+ * Paints `{ x, y, c }` pixels (all inside the tile) into `rgba`; later ones win.
+ * @returns {boolean} whether the image changed (a pixel painted again with the colour it has is not a change)
+ */
 export function applyPixels(rgba, pixels) {
+  let changed = false;
   for (const { x, y, c } of pixels) {
     const i = pixelOffset(x, y);
-    rgba[i] = (c >> 16) & 0xff;
-    rgba[i + 1] = (c >> 8) & 0xff;
-    rgba[i + 2] = c & 0xff;
+    const r = (c >> 16) & 0xff;
+    const g = (c >> 8) & 0xff;
+    const b = c & 0xff;
+    if (rgba[i + 3] !== 0xff || rgba[i] !== r || rgba[i + 1] !== g || rgba[i + 2] !== b) changed = true;
+    rgba[i] = r;
+    rgba[i + 1] = g;
+    rgba[i + 2] = b;
     rgba[i + 3] = 0xff;
   }
+  return changed;
 }
 
 /** True when no pixel of the raster was ever painted. */

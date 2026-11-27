@@ -57,6 +57,27 @@ test("nothing new since the raster: it is already up to date and keeps its versi
   assert.equal(tile.version, 1000);
 });
 
+test("the newest pixel read again (its time has microseconds, the version does not) changes nothing", async () => {
+  // Review of #143 (M1): the query is `t > version` with the version rounded down to the
+  // millisecond, so the newest pixel of the raster comes back at every read.
+  const world = setup([{ x: 1, y: 1, c: 0xff0000, t: 1000 }]);
+  const rgba = emptyRaster();
+  applyPixels(rgba, [{ x: 1, y: 1, c: 0xff0000 }]);
+  await world.bucket.write(0, 0, rgba, 1000);
+  world.pixels.read = async () => [{ x: 1, y: 1, c: 0xff0000, t: 1000 }];
+
+  const tile = await run(world);
+  assert.equal(tile.upToDate, true, "same image: nothing to write");
+  assert.equal(tile.version, 1000);
+
+  // The same pixel painted again with another colour is a real change.
+  world.pixels.read = async () => [{ x: 1, y: 1, c: 0x00ff00, t: 1000 }];
+  assert.equal((await run(world)).upToDate, false);
+  // And so is a new pixel, even with the colour of a neighbour.
+  world.pixels.read = async () => [{ x: 2, y: 1, c: 0xff0000, t: 1001 }];
+  assert.equal((await run(world)).upToDate, false);
+});
+
 test("a raster older than the last clear is not used: the tile restarts from the clear", async () => {
   const world = setup([
     { x: 1, y: 1, c: 0xff0000, t: 1000 }, // before the clear

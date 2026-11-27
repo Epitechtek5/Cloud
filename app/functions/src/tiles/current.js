@@ -42,7 +42,7 @@ export async function readTilePixels(db, { tx, ty, sinceMs, clearedAt }) {
  * @param {number} options.clearedAt  epoch ms of the last /admin clear (0: never)
  * @returns {Promise<{ rgba: Uint8Array, version: number, stored: object | null, upToDate: boolean, blank: boolean }>}
  *   `version`: time of the newest pixel in `rgba` (0 when blank), rounded down;
- *   `upToDate`: the stored raster already is this image (nothing new to write)
+ *   `upToDate`: the stored raster already is this image (nothing new to write), even if pixels were read
  */
 export async function currentTile({ bucket, readPixels, tx, ty, clearedAt }) {
   const stored = await bucket.read(tx, ty);
@@ -52,10 +52,15 @@ export async function currentTile({ bucket, readPixels, tx, ty, clearedAt }) {
 
   const pixels = await readPixels({ tx, ty, sinceMs, clearedAt });
   const rgba = base ? base.rgba : emptyRaster();
-  applyPixels(rgba, pixels);
+  const changed = applyPixels(rgba, pixels);
 
   // Ordered by t: the last pixel is the newest.
   const version = Math.max(base?.version ?? 0, pixels.at(-1)?.t ?? 0);
-  const upToDate = base !== null && pixels.length === 0;
+  // Compared on the image, not on the number of pixels read: the version is
+  // rounded down to the millisecond while `t` has microseconds, so the newest
+  // pixel of the raster comes back at every read (`t > version`) without being
+  // new. Nothing to write then; the raster keeps its older version, which only
+  // makes the front read that pixel again (harmless, the same colour).
+  const upToDate = base !== null && !changed;
   return { rgba, version, stored, upToDate, blank: isBlank(rgba) };
 }

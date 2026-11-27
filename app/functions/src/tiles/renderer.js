@@ -26,6 +26,13 @@ export class RenderBudgetError extends Error {
   }
 }
 
+export class SweepBudgetError extends Error {
+  constructor() {
+    super("rasters older than the clear still to erase after the time budget");
+    this.name = "SweepBudgetError";
+  }
+}
+
 const MAX_CONFLICT_RETRIES = 3;
 
 /**
@@ -61,11 +68,15 @@ export async function renderTile({ bucket, readSession, readPixels }, tx, ty) {
 
 /**
  * Brings one tile up to date and keeps doing so until no message is pending.
+ * `owner` names the leader in `tileState`: the handler passes the Pub/Sub
+ * messageId, which a redelivery keeps. A leader that died without giving the
+ * tile back (killed instance, no `release`) then finds its own lease when its
+ * message comes back, and takes over at once instead of waiting for the lease to
+ * expire while every other message hands its pixels to a leader that no longer exists.
  * @returns {Promise<{ led: boolean, renders: number }>}  led=false: another instance leads this tile and will render our pixels too
  */
-export async function syncTile(deps, tile, { minIntervalMs, deadline, now = Date.now, sleep }) {
+export async function syncTile(deps, tile, { minIntervalMs, deadline, now = Date.now, sleep, owner = randomUUID() }) {
   const { state } = deps;
-  const owner = randomUUID();
   const { tx, ty } = parseTile(tile);
 
   const claim = await state.touch(tile, owner);
@@ -109,15 +120,17 @@ export function createTileRenderer({ getDeps, config, now = Date.now, sleep = (m
     functionName: FUNCTION_NAME,
     expect: "pixel.processed",
     logger,
-    async handle({ payload: batch }, { log }) {
+    async handle({ payload: batch, messageId }, { log }) {
       const deps = await getDeps();
       const deadline = now() + config.budgetMs;
 
       if (batch.cleared) {
         // /admin clear: every raster rendered before it shows erased pixels.
         const { clearedAt } = await deps.readSession();
-        const erased = await deps.bucket.deleteStale(clearedAt);
-        log.info("rasters erased after a clear", { batchId: batch.batchId, erased });
+        const { erased, complete } = await deps.bucket.deleteStale(clearedAt, { deadline, now });
+        log.info("rasters erased after a clear", { batchId: batch.batchId, erased, complete });
+        // Out of time: the retry continues where this one stopped (what was erased is not listed as stale again).
+        if (!complete) throw new SweepBudgetError();
       }
 
       const tiles = tilesOfPixels(batch.pixels);
@@ -126,7 +139,7 @@ export function createTileRenderer({ getDeps, config, now = Date.now, sleep = (m
       const results = await mapLimit(tiles, config.concurrency, async (tile) => {
         try {
           if (now() > deadline) throw new RenderBudgetError(tile);
-          return { tile, ...(await syncTile(deps, tile, { minIntervalMs: config.minIntervalMs, deadline, now, sleep })) };
+          return { tile, ...(await syncTile(deps, tile, { minIntervalMs: config.minIntervalMs, deadline, now, sleep, owner: messageId || undefined })) };
         } catch (err) {
           return { tile, err };
         }

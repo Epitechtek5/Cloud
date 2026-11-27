@@ -120,9 +120,24 @@ test("deleteStale erases the rasters rendered before the clear and keeps the new
   await storage.file("tiles/9/9.png").save(Buffer.from("x"), { metadata: {} }); // no version: not trustworthy
   await storage.file("overview.png").save(Buffer.from("x"), { metadata: {} }); // not a tile: left alone
 
-  const erased = await tiles.deleteStale(200);
-  assert.equal(erased, 3);
+  assert.deepEqual(await tiles.deleteStale(200), { erased: 3, complete: true });
   assert.deepEqual([...storage.objects.keys()], ["tiles/1/0.png", "overview.png"]);
+});
+
+test("deleteStale erases as it lists and stops at the deadline, the retry finishes", async () => {
+  // Review of #143 (M8): the whole bucket (up to 152 881 rasters) cannot be listed within one message.
+  const storage = fakeStorageBucket();
+  const tiles = createTileBucket(storage);
+  for (let i = 0; i < 40; i++) await tiles.write(i, 0, raster(), 100);
+  let clock = 0;
+  const now = () => clock++; // one tick per call: the deadline falls in the middle of the listing
+  const first = await tiles.deleteStale(200, { concurrency: 2, deadline: 20, now });
+  assert.equal(first.complete, false);
+  assert.ok(first.erased > 0 && first.erased < 40, `${first.erased} erased before the deadline`);
+  assert.equal(storage.objects.size, 40 - first.erased, "what was erased is gone, the rest is left for the retry");
+
+  assert.deepEqual(await tiles.deleteStale(200), { erased: 40 - first.erased, complete: true });
+  assert.equal(storage.objects.size, 0);
 });
 
 test("deleteStale does not erase a raster that was rewritten after the listing", async () => {

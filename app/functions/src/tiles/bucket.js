@@ -102,23 +102,44 @@ export function createTileBucket(bucket, { cacheMaxAgeSeconds = 60 } = {}) {
      * the clear, i.e. rendered before it. A raster rendered after the clear has
      * a newer version and stays; one rewritten while we list is kept too
      * (delete is conditional on the listed generation).
-     * @returns {Promise<number>} number of rasters deleted
+     *
+     * The listing covers the whole bucket (up to 152 881 tiles for the whole
+     * grid), so it deletes as it goes, holding a few names at a time, and stops
+     * at `deadline` (`complete: false`): the caller retries, and what was
+     * deleted is not listed again as stale. The rasters not erased yet are
+     * ignored meanwhile (the renderer and the front drop a raster whose version
+     * is not newer than the clear).
+     * @returns {Promise<{ erased: number, complete: boolean }>}
      */
-    async deleteStale(clearedAt, { concurrency = 16 } = {}) {
-      const stale = [];
+    async deleteStale(clearedAt, { concurrency = 16, deadline = Infinity, now = Date.now } = {}) {
+      let erased = 0;
+      let pending = [];
+      const flush = async () => {
+        const batch = pending;
+        pending = [];
+        await mapLimit(batch, concurrency, async ({ name, generation }) => {
+          try {
+            await bucket.file(name).delete({ ifGenerationMatch: generation });
+          } catch (err) {
+            if (!notFound(err) && !preconditionFailed(err)) throw err;
+          }
+        });
+        erased += batch.length;
+      };
+
+      let complete = true;
       for await (const file of bucket.getFilesStream({ prefix: TILE_PREFIX })) {
+        if (now() > deadline) {
+          complete = false;
+          break;
+        }
         const version = Number(file.metadata?.metadata?.[VERSION_METADATA]);
         // No readable version: not one of ours, or written by an older renderer; erase it, it is rebuilt on the next draw.
-        if (!Number.isFinite(version) || version <= clearedAt) stale.push({ name: file.name, generation: Number(file.metadata.generation) });
+        if (!Number.isFinite(version) || version <= clearedAt) pending.push({ name: file.name, generation: Number(file.metadata.generation) });
+        if (pending.length >= concurrency * 8) await flush();
       }
-      await mapLimit(stale, concurrency, async ({ name, generation }) => {
-        try {
-          await bucket.file(name).delete({ ifGenerationMatch: generation });
-        } catch (err) {
-          if (!notFound(err) && !preconditionFailed(err)) throw err;
-        }
-      });
-      return stale.length;
+      await flush();
+      return { erased, complete };
     },
   };
 }

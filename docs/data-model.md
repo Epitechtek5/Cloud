@@ -106,6 +106,8 @@ stocké dans le bucket `tiles`. Le raster porte sa version ; les deltas comblent
 - **Réalisé dans #68, sans topic de plus** : le `tile-renderer` est abonné à `pixel.processed` (le worker de dessin ne publie
   pas de `tile.dirty`). Chaque message ajoute 1 au compteur `seq` du document `tileState/{tx}_{ty}` (transaction) ; le message qui
   trouve la tuile libre en devient le **leader** (bail de 25 s, renouvelé), les autres n'ont rien d'autre à faire et sont acquittés.
+  Le leader porte le `messageId` Pub/Sub du message (identique à chaque nouvelle livraison) : si son instance est tuée sans libérer la tuile,
+  la nouvelle livraison de ce même message reprend la tuile tout de suite au lieu d'attendre l'expiration du bail.
 - Le leader rend la tuile tout de suite (le pixel apparaît en 1 à 3 s), puis relit `seq` : s'il a bougé, d'autres messages sont
   arrivés pendant le rendu et il recommence, **au plus une fois par 1,5 s** (`RENDER_MIN_INTERVAL_MS`), jusqu'à ce que `seq` ne
   bouge plus. C'est un debounce « premier appel immédiat, dernier appel garanti » : une rafale de 100 messages donne quelques

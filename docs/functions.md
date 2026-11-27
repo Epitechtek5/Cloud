@@ -166,7 +166,11 @@ browser --HTTPS--> LB + Cloud CDN --/tiles/{tx}/{ty}.png--> backend bucket --> b
   a lease (`tileState/{tx}_{ty}`), renders, stores the PNG, and renders again at most once per `RENDER_MIN_INTERVAL_MS`
   while more messages arrived: see `docs/data-model.md` §4 for the reasoning. Writes are conditional on the object
   generation (`bucket.js`), so two renderers never overwrite each other. A message that cannot finish within
-  `RENDER_BUDGET_MS`, or a tile that fails, answers `500`: Pub/Sub retries, the rendering is idempotent.
+  `RENDER_BUDGET_MS`, or a tile that fails, answers `500`: Pub/Sub retries, the rendering is idempotent. The leader of a tile is
+  named after the Pub/Sub `messageId`, which a redelivery keeps: if an instance is killed without giving the tile back, the
+  redelivery of its message takes the tile at once instead of waiting for the lease to expire. A render only writes when the
+  image changed (compared on the pixels, not on the number read: `t > version` returns the newest pixel at every read).
+  The sweep after `/admin clear` (`deleteStale`) deletes while it lists and stops at the same budget (`500`, the retry continues).
 - **Version** (`raster.js`): `floor(ms)` of the newest pixel `t` in the raster, stored as the `Tile-Version` `tEXt` chunk of the
   PNG (the image and its version are one object) and as object metadata `tile-version` (listable without downloading).
   Rounding down only ever repeats a pixel on the front, rounding up would lose some.

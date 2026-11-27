@@ -48,6 +48,15 @@ test("a render writes the raster with the version of the newest pixel, then find
   assert.equal(w.storage.calls.save, 1);
 });
 
+test("a render that only reads the newest pixel again does not rewrite the raster", async () => {
+  // Review of #143 (M1): `t > version` returns the newest pixel at every read (version rounded down to the ms).
+  const w = world({ pixels: [{ x: 3, y: 4, c: COLOR, t: 5_000 }] });
+  assert.equal(await renderTile(w.deps, 0, 0), "written");
+  w.deps.readPixels = async () => [{ x: 3, y: 4, c: COLOR, t: 5_000 }];
+  assert.equal(await renderTile(w.deps, 0, 0), "unchanged");
+  assert.equal(w.storage.calls.save, 1);
+});
+
 test("a render of a tile with nothing painted writes nothing", async () => {
   const w = world();
   assert.equal(await renderTile(w.deps, 4, 4), "unchanged");
@@ -149,6 +158,22 @@ test("a leader renders again, no more often than the minimum interval, while mes
   assert.equal(w.db.docs.get("tileState/0_0").owner, null, "released at the end");
 });
 
+test("a leader killed without giving the tile back is replaced by the redelivery of its own message", async () => {
+  // Review of #143 (M4): with a random owner per delivery, the redelivery found the dead leader's lease
+  // (25 s) still alive when it came back sooner, took the tile for a follower's and acked: no render until
+  // the next draw on that tile.
+  const w = world({ pixels: [{ x: 1, y: 1, c: 1, t: 1000 }] });
+  await w.deps.state.touch("0_0", "msg-7"); // the leader of message msg-7 was killed here: lease taken, nothing rendered
+  assert.equal(w.storage.objects.size, 0);
+
+  // Another message in the meantime has to wait for the lease: not a leader.
+  assert.deepEqual(await syncTile(w.deps, "0_0", options(w, { owner: "msg-8" })), { led: false, renders: 0 });
+  // The redelivery of msg-7 takes over at once and renders.
+  assert.deepEqual(await syncTile(w.deps, "0_0", options(w, { owner: "msg-7" })), { led: true, renders: 1 });
+  assert.ok(w.storage.objects.has("tiles/0/0.png"));
+  assert.equal(w.db.docs.get("tileState/0_0").owner, null);
+});
+
 test("a leader whose lease was taken over stops quietly", async () => {
   const w = world({ pixels: [{ x: 1, y: 1, c: 1, t: 1000 }], leaseMs: 1000 });
   const realRead = w.deps.readPixels;
@@ -194,10 +219,14 @@ function worker(w, { config = {}, extra = {} } = {}) {
     logger: createLogger({}, { write: out.write }),
     ...extra,
   });
-  const send = async (payload, eventType = "pixel.processed") => {
+  let delivered = 0;
+  // Each message has its own Pub/Sub messageId (the leader of a tile is named after it); a redelivery keeps it.
+  const send = async (payload, eventType = "pixel.processed", { messageId = `msg-${++delivered}` } = {}) => {
     const res = response();
     res.end = () => res;
-    await handler(pushRequest(eventType, payload), res);
+    const req = pushRequest(eventType, payload);
+    req.body.message.messageId = messageId;
+    await handler(req, res);
     return res.statusCode;
   };
   return { send, logs: out.lines };
@@ -273,6 +302,24 @@ test("/admin clear sweeps the rasters rendered before it and renders nothing els
   assert.equal(await send({ batchId: "clear-1", userId: "123456789012345678", cleared: true, pixels: [] }), 204);
   assert.deepEqual([...w.storage.objects.keys()], ["tiles/1/0.png"], "the newer raster stays");
   assert.equal(logs.find((l) => l.message === "rasters erased after a clear").erased, 1);
+});
+
+test("the redelivery of a message whose leader died renders the tile it left behind", async () => {
+  const w = world({ pixels: [{ x: 1, y: 1, c: 1, t: 1000 }] });
+  await w.deps.state.touch("0_0", "msg-lost"); // killed instance of the first delivery
+  const { send } = worker(w);
+  assert.equal(await send(processed("b9", w.px.docs), "pixel.processed", { messageId: "msg-lost" }), 204);
+  assert.ok(w.storage.objects.has("tiles/0/0.png"), "the redelivery took the lease of its own message");
+});
+
+test("a sweep out of time budget fails the message so that the retry continues it", async () => {
+  const w = world({ pixels: [{ x: 1, y: 1, c: 1, t: 1000 }, { x: 300, y: 1, c: 2, t: 1000 }] });
+  await renderTile(w.deps, 0, 0);
+  await renderTile(w.deps, 1, 0);
+  w.session.clearedAt = 2000;
+  const { send, logs } = worker(w, { extra: { now: (() => { let t = 0; return () => (t += 6000); })() } });
+  assert.equal(await send({ batchId: "clear-2", userId: "123456789012345678", cleared: true, pixels: [] }), 500);
+  assert.equal(logs.find((l) => l.message === "rasters erased after a clear").complete, false);
 });
 
 test("refuses other event types and invalid messages without touching anything", async () => {

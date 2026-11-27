@@ -52,8 +52,13 @@ module "tile_renderer" {
   # Within the 30 s ack deadline of pixel.processed; the render budget above is shorter.
   timeout_seconds = 25
   memory          = "512M"
-  # A burst on one tile holds one instance for its duration (one leader per tile):
-  # spread over hot tiles, bounded for the budget.
+  # A burst on one tile holds a request for its duration (the leader sleeps between two
+  # renders). With one request per instance (the default) the other pushes find every
+  # instance busy and get a 429, which Pub/Sub counts as a failed delivery (review of #143, M5):
+  # the requests mostly wait, so one instance serves several. Needs a full CPU.
+  cpu                     = "1"
+  max_request_concurrency = 8
+  # Spread over hot tiles, bounded for the budget.
   max_instances = 10
 
   depends_on = [
